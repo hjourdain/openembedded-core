@@ -68,8 +68,8 @@ class RecipeHandler(object):
             return
         # First build up library->package mapping
         shlib_providers = oe.package.read_shlib_providers(d)
-        libdir = d.getVar('libdir', True)
-        base_libdir = d.getVar('base_libdir', True)
+        libdir = d.getVar('libdir')
+        base_libdir = d.getVar('base_libdir')
         libpaths = list(set([base_libdir, libdir]))
         libname_re = re.compile('^lib(.+)\.so.*$')
         pkglibmap = {}
@@ -85,7 +85,7 @@ class RecipeHandler(object):
                         logger.debug('unable to extract library name from %s' % lib)
 
         # Now turn it into a library->recipe mapping
-        pkgdata_dir = d.getVar('PKGDATA_DIR', True)
+        pkgdata_dir = d.getVar('PKGDATA_DIR')
         for libname, pkg in pkglibmap.items():
             try:
                 with open(os.path.join(pkgdata_dir, 'runtime', pkg)) as f:
@@ -109,9 +109,9 @@ class RecipeHandler(object):
         '''Build up development file->recipe mapping'''
         if RecipeHandler.recipeheadermap:
             return
-        pkgdata_dir = d.getVar('PKGDATA_DIR', True)
-        includedir = d.getVar('includedir', True)
-        cmakedir = os.path.join(d.getVar('libdir', True), 'cmake')
+        pkgdata_dir = d.getVar('PKGDATA_DIR')
+        includedir = d.getVar('includedir')
+        cmakedir = os.path.join(d.getVar('libdir'), 'cmake')
         for pkg in glob.glob(os.path.join(pkgdata_dir, 'runtime', '*-dev')):
             with open(os.path.join(pkgdata_dir, 'runtime', pkg)) as f:
                 pn = None
@@ -140,9 +140,9 @@ class RecipeHandler(object):
         '''Build up native binary->recipe mapping'''
         if RecipeHandler.recipebinmap:
             return
-        sstate_manifests = d.getVar('SSTATE_MANIFESTS', True)
-        staging_bindir_native = d.getVar('STAGING_BINDIR_NATIVE', True)
-        build_arch = d.getVar('BUILD_ARCH', True)
+        sstate_manifests = d.getVar('SSTATE_MANIFESTS')
+        staging_bindir_native = d.getVar('STAGING_BINDIR_NATIVE')
+        build_arch = d.getVar('BUILD_ARCH')
         fileprefix = 'manifest-%s-' % build_arch
         for fn in glob.glob(os.path.join(sstate_manifests, '%s*-native.populate_sysroot' % fileprefix)):
             with open(fn, 'r') as f:
@@ -234,7 +234,8 @@ class RecipeHandler(object):
         if deps:
             values['DEPENDS'] = ' '.join(deps)
 
-    def genfunction(self, outlines, funcname, content, python=False, forcespace=False):
+    @staticmethod
+    def genfunction(outlines, funcname, content, python=False, forcespace=False):
         if python:
             prefix = 'python '
         else:
@@ -460,8 +461,8 @@ def create_recipe(args):
 
                 if pkgfile:
                     if pkgfile.endswith(('.deb', '.ipk')):
-                        stdout, _ = bb.process.run('ar x %s control.tar.gz' % pkgfile, cwd=tmpfdir)
-                        stdout, _ = bb.process.run('tar xf control.tar.gz ./control', cwd=tmpfdir)
+                        stdout, _ = bb.process.run('ar x %s' % pkgfile, cwd=tmpfdir)
+                        stdout, _ = bb.process.run('tar xf control.tar.gz', cwd=tmpfdir)
                         values = convert_debian(tmpfdir)
                         extravalues.update(values)
                     elif pkgfile.endswith(('.rpm', '.srpm')):
@@ -722,6 +723,15 @@ def create_recipe(args):
         if not bbclassextend:
             lines_after.append('BBCLASSEXTEND = "native"')
 
+    postinst = ("postinst", extravalues.pop('postinst', None))
+    postrm = ("postrm", extravalues.pop('postrm', None))
+    preinst = ("preinst", extravalues.pop('preinst', None))
+    prerm = ("prerm", extravalues.pop('prerm', None))
+    funcs = [postinst, postrm, preinst, prerm]
+    for func in funcs:
+        if func[1]:
+            RecipeHandler.genfunction(lines_after, 'pkg_%s_${PN}' % func[0], func[1])
+
     outlines = []
     outlines.extend(lines_before)
     if classes:
@@ -827,7 +837,7 @@ def get_license_md5sums(d, static_only=False):
     md5sums = {}
     if not static_only:
         # Gather md5sums of license files in common license dir
-        commonlicdir = d.getVar('COMMON_LICENSE_DIR', True)
+        commonlicdir = d.getVar('COMMON_LICENSE_DIR')
         for fn in os.listdir(commonlicdir):
             md5value = bb.utils.md5_file(os.path.join(commonlicdir, fn))
             md5sums[md5value] = fn
@@ -997,7 +1007,7 @@ def split_pkg_licenses(licvalues, packages, outlines, fallback_licenses=None, pn
     return outlicenses
 
 def read_pkgconfig_provides(d):
-    pkgdatadir = d.getVar('PKGDATA_DIR', True)
+    pkgdatadir = d.getVar('PKGDATA_DIR')
     pkgmap = {}
     for fn in glob.glob(os.path.join(pkgdatadir, 'shlibs2', '*.pclist')):
         with open(fn, 'r') as f:
@@ -1058,6 +1068,25 @@ def convert_debian(debpath):
                     varname = value_map.get(key, None)
                     if varname:
                         values[varname] = value
+    postinst = os.path.join(debpath, 'postinst')
+    postrm = os.path.join(debpath, 'postrm')
+    preinst = os.path.join(debpath, 'preinst')
+    prerm = os.path.join(debpath, 'prerm')
+    sfiles = [postinst, postrm, preinst, prerm]
+    for sfile in sfiles:
+        if os.path.isfile(sfile):
+            logger.info("Converting %s file to recipe function..." %
+                    os.path.basename(sfile).upper())
+            content = []
+            with open(sfile) as f:
+                for line in f:
+                    if "#!/" in line:
+                        continue
+                    line = line.rstrip("\n")
+                    if line.strip():
+                        content.append(line)
+                if content:
+                    values[os.path.basename(f.name)] = content
 
     #if depends:
     #    values['DEPENDS'] = ' '.join(depends)
@@ -1088,7 +1117,7 @@ def convert_rpm_xml(xmlfile):
 
 
 def check_npm(d, debugonly=False):
-    if not os.path.exists(os.path.join(d.getVar('STAGING_BINDIR_NATIVE', True), 'npm')):
+    if not os.path.exists(os.path.join(d.getVar('STAGING_BINDIR_NATIVE'), 'npm')):
         log_error_cond('npm required to process specified source, but npm is not available - you need to build nodejs-native first', debugonly)
         sys.exit(14)
 

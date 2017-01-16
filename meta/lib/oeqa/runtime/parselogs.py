@@ -43,6 +43,7 @@ common_errors = [
     "controller can't do DEVSLP, turning off",
     "stmmac_dvr_probe: warning: cannot get CSR clock",
     "error: couldn\'t mount because of unsupported optional features",
+    "GPT: Use GNU Parted to correct GPT errors",
     ]
 
 video_related = [
@@ -58,6 +59,7 @@ x86_common = [
     'failed to setup card detect gpio',
     'amd_nb: Cannot enumerate AMD northbridges',
     'failed to retrieve link info, disabling eDP',
+    'Direct firmware load for iwlwifi',
 ] + common_errors
 
 qemux86_common = [
@@ -69,7 +71,7 @@ qemux86_common = [
     'tsc: HPET/PMTIMER calibration failed',
 ] + common_errors
 
-ignore_errors = { 
+ignore_errors = {
     'default' : common_errors,
     'qemux86' : [
         'Failed to access perfctr msr (MSR',
@@ -132,7 +134,19 @@ ignore_errors = {
         'dmi: Firmware registration failed.',
         'ioremap error for 0x78',
         ] + x86_common,
-    'intel-corei7-64' : x86_common,
+    'intel-corei7-64' : [
+        'can\'t set Max Payload Size to 256',
+        'intel_punit_ipc: can\'t request region for resource',
+        '[drm] parse error at position 4 in video mode \'efifb\'',
+        'ACPI Error: Could not enable RealTimeClock event',
+        'ACPI Warning: Could not enable fixed event - RealTimeClock',
+        'hci_intel INT33E1:00: Unable to retrieve gpio',
+        'hci_intel: probe of INT33E1:00 failed',
+        'can\'t derive routing for PCI INT A',
+        'failed to read out thermal zone',
+        'Bluetooth: hci0: Setting Intel event mask failed',
+        'ttyS2 - failed to request DMA',
+        ] + x86_common,
     'crownbay' : x86_common,
     'genericx86' : x86_common,
     'genericx86-64' : [
@@ -140,6 +154,7 @@ ignore_errors = {
         'Failed to load firmware i915',
         'Failed to fetch GuC',
         'Failed to initialize GuC',
+        'Failed to load DMC firmware',
         'The driver is built-in, so to load the firmware you need to',
         ] + x86_common,
     'edgerouter' : [
@@ -178,10 +193,10 @@ class ParseLogsTest(oeRuntimeTest):
                 self.ignore_errors[machine] = self.ignore_errors[machine] + video_related
 
     def getMachine(self):
-        return oeRuntimeTest.tc.d.getVar("MACHINE", True)
+        return oeRuntimeTest.tc.d.getVar("MACHINE")
 
     def getWorkdir(self):
-        return oeRuntimeTest.tc.d.getVar("WORKDIR", True)
+        return oeRuntimeTest.tc.d.getVar("WORKDIR")
 
     #get some information on the CPU of the machine to display at the beginning of the output. This info might be useful in some cases.
     def getHardwareInfo(self):
@@ -200,7 +215,7 @@ class ParseLogsTest(oeRuntimeTest):
         hwi += "*******************************\n"
         return hwi
 
-    #go through the log locations provided and if it's a folder create a list with all the .log files in it, if it's a file just add 
+    #go through the log locations provided and if it's a folder create a list with all the .log files in it, if it's a file just add
     #it to that list
     def getLogList(self, log_locations):
         logs = []

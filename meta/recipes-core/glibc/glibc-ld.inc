@@ -1,6 +1,6 @@
 def ld_append_if_tune_exists(d, infos, dict):
-    tune = d.getVar("DEFAULTTUNE", True) or ""
-    libdir = d.getVar("base_libdir", True) or ""
+    tune = d.getVar("DEFAULTTUNE") or ""
+    libdir = d.getVar("base_libdir") or ""
     if tune in dict:
         infos['ldconfig'].add('{"' + libdir + '/' + dict[tune][0] + '",' + dict[tune][1] + ' }')
         infos['lddrewrite'].add(libdir+'/'+dict[tune][0])
@@ -26,13 +26,13 @@ def glibc_dl_info(d):
     ld_append_if_tune_exists(d, infos, ld_info_all)
 
     #DEFAULTTUNE_MULTILIB_ORIGINAL
-    original_tune=d.getVar("DEFAULTTUNE_MULTILIB_ORIGINAL",True)
+    original_tune=d.getVar("DEFAULTTUNE_MULTILIB_ORIGINAL")
     if original_tune:
         localdata = bb.data.createCopy(d)
         localdata.setVar("DEFAULTTUNE", original_tune)
         ld_append_if_tune_exists(localdata, infos, ld_info_all)
 
-    variants = d.getVar("MULTILIB_VARIANTS", True) or ""
+    variants = d.getVar("MULTILIB_VARIANTS") or ""
     for item in variants.split():
         localdata = bb.data.createCopy(d)
         overrides = localdata.getVar("OVERRIDES", False) + ":virtclass-multilib-" + item

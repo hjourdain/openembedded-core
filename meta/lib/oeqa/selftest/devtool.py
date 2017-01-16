@@ -437,9 +437,33 @@ class DevtoolTests(DevtoolBase):
         # Check git repo
         self._check_src_repo(tempdir)
         # Try building
-        bitbake('mdadm')
+        def list_stamps(globsuffix='*'):
+            stampprefix = get_bb_var('STAMP', 'mdadm')
+            self.assertTrue(stampprefix, 'Unable to get STAMP value for recipe mdadm')
+            return glob.glob(stampprefix + globsuffix)
+
+        numstamps = len(list_stamps('.do_compile.*'))
+        self.assertEqual(numstamps, 0, 'do_compile stamps before first build')
+        for x in range(10):
+            bitbake('mdadm')
+            nowstamps = len(list_stamps('.do_compile.*'))
+            if nowstamps == numstamps:
+                break
+            numstamps = nowstamps
+        else:
+            self.fail('build did not stabilize in 10 iterations')
+
         # Try making (minor) modifications to the source
-        result = runCmd("sed -i 's!^\.TH.*!.TH MDADM 8 \"\" v9.999-custom!' %s" % os.path.join(tempdir, 'mdadm.8.in'))
+        modfile = os.path.join(tempdir, 'mdadm.8.in')
+        result = runCmd("sed -i 's!^\.TH.*!.TH MDADM 8 \"\" v9.999-custom!' %s" % modfile)
+
+        def check_TH_line(checkfile, expected, message):
+            with open(checkfile, 'r') as f:
+                for line in f:
+                    if line.startswith('.TH'):
+                        self.assertEqual(line.rstrip(), expected, message)
+
+        check_TH_line(modfile, '.TH MDADM 8 "" v9.999-custom', 'man .in file not modified (sed failed)')
         bitbake('mdadm -c package')
         pkgd = get_bb_var('PKGD', 'mdadm')
         self.assertTrue(pkgd, 'Could not query PKGD variable')
@@ -447,18 +471,25 @@ class DevtoolTests(DevtoolBase):
         self.assertTrue(mandir, 'Could not query mandir variable')
         if mandir[0] == '/':
             mandir = mandir[1:]
-        with open(os.path.join(pkgd, mandir, 'man8', 'mdadm.8'), 'r') as f:
-            for line in f:
-                if line.startswith('.TH'):
-                    self.assertEqual(line.rstrip(), '.TH MDADM 8 "" v9.999-custom', 'man file not modified. man searched file path: %s' % os.path.join(pkgd, mandir, 'man8', 'mdadm.8'))
+        manfile = os.path.join(pkgd, mandir, 'man8', 'mdadm.8')
+        check_TH_line(manfile, '.TH MDADM 8 "" v9.999-custom', 'man file not modified. man searched file path: %s' % manfile)
+        # Test reverting the change
+        result = runCmd("git -C %s checkout -- %s" % (tempdir, modfile))
+        check_TH_line(modfile, '.TH MDADM 8 "" v3.4', 'man .in file not restored (git failed)')
+        bitbake('mdadm -c package')
+        pkgd = get_bb_var('PKGD', 'mdadm')
+        self.assertTrue(pkgd, 'Could not query PKGD variable')
+        mandir = get_bb_var('mandir', 'mdadm')
+        self.assertTrue(mandir, 'Could not query mandir variable')
+        if mandir[0] == '/':
+            mandir = mandir[1:]
+        manfile = os.path.join(pkgd, mandir, 'man8', 'mdadm.8')
+        check_TH_line(manfile, '.TH MDADM 8 "" v3.4', 'man file not updated. man searched file path: %s' % manfile)
         # Test devtool reset
-        stampprefix = get_bb_var('STAMP', 'mdadm')
         result = runCmd('devtool reset mdadm')
         result = runCmd('devtool status')
         self.assertNotIn('mdadm', result.output)
-        self.assertTrue(stampprefix, 'Unable to get STAMP value for recipe mdadm')
-        matches = glob.glob(stampprefix + '*')
-        self.assertFalse(matches, 'Stamp files exist for recipe mdadm that should have been cleaned')
+        self.assertFalse(list_stamps(), 'Stamp files exist for recipe mdadm that should have been cleaned')
 
     @testcase(1166)
     def test_devtool_modify_invalid(self):
@@ -657,7 +688,7 @@ class DevtoolTests(DevtoolBase):
         self._check_src_repo(tempdir)
         # Add a couple of commits
         # FIXME: this only tests adding, need to also test update and remove
-        result = runCmd('echo "# Additional line" >> Makefile', cwd=tempdir)
+        result = runCmd('echo "# Additional line" >> Makefile.am', cwd=tempdir)
         result = runCmd('git commit -a -m "Change the Makefile"', cwd=tempdir)
         result = runCmd('echo "A new file" > devtool-new-file', cwd=tempdir)
         result = runCmd('git add devtool-new-file', cwd=tempdir)
@@ -794,7 +825,7 @@ class DevtoolTests(DevtoolBase):
         # Check git repo
         self._check_src_repo(tempsrcdir)
         # Add a commit
-        result = runCmd('echo "# Additional line" >> Makefile', cwd=tempsrcdir)
+        result = runCmd('echo "# Additional line" >> Makefile.am', cwd=tempsrcdir)
         result = runCmd('git commit -a -m "Change the Makefile"', cwd=tempsrcdir)
         self.add_command_to_tearDown('cd %s; rm -f %s/*.patch; git checkout .' % (os.path.dirname(recipefile), testrecipe))
         # Create a temporary layer
@@ -874,6 +905,8 @@ class DevtoolTests(DevtoolBase):
         result = runCmd('devtool modify %s -x %s' % (testrecipe, tempdir))
         # Check git repo
         self._check_src_repo(tempdir)
+        # Try building just to ensure we haven't broken that
+        bitbake("%s" % testrecipe)
         # Edit / commit local source
         runCmd('echo "/* Foobar */" >> oe-local-files/makedevs.c', cwd=tempdir)
         runCmd('echo "Foo" > oe-local-files/new-local', cwd=tempdir)
@@ -928,6 +961,73 @@ class DevtoolTests(DevtoolBase):
                            (' D', '.*/run-ptest$'),
                            ('??', '.*/new-local$'),
                            ('??', '.*/0001-Add-new-file.patch$')]
+        self._check_repo_status(os.path.dirname(recipefile), expected_status)
+
+    def test_devtool_update_recipe_local_files_3(self):
+        # First, modify the recipe
+        testrecipe = 'devtool-test-localonly'
+        recipefile = get_bb_var('FILE', testrecipe)
+        src_uri = get_bb_var('SRC_URI', testrecipe)
+        tempdir = tempfile.mkdtemp(prefix='devtoolqa')
+        self.track_for_cleanup(tempdir)
+        self.track_for_cleanup(self.workspacedir)
+        self.add_command_to_tearDown('bitbake-layers remove-layer */workspace')
+        # (don't bother with cleaning the recipe on teardown, we won't be building it)
+        result = runCmd('devtool modify %s' % testrecipe)
+        # Modify one file
+        runCmd('echo "Another line" >> file2', cwd=os.path.join(self.workspacedir, 'sources', testrecipe, 'oe-local-files'))
+        self.add_command_to_tearDown('cd %s; rm %s/*; git checkout %s %s' % (os.path.dirname(recipefile), testrecipe, testrecipe, os.path.basename(recipefile)))
+        result = runCmd('devtool update-recipe %s' % testrecipe)
+        expected_status = [(' M', '.*/%s/file2$' % testrecipe)]
+        self._check_repo_status(os.path.dirname(recipefile), expected_status)
+
+    def test_devtool_update_recipe_local_patch_gz(self):
+        # First, modify the recipe
+        testrecipe = 'devtool-test-patch-gz'
+        recipefile = get_bb_var('FILE', testrecipe)
+        src_uri = get_bb_var('SRC_URI', testrecipe)
+        tempdir = tempfile.mkdtemp(prefix='devtoolqa')
+        self.track_for_cleanup(tempdir)
+        self.track_for_cleanup(self.workspacedir)
+        self.add_command_to_tearDown('bitbake-layers remove-layer */workspace')
+        # (don't bother with cleaning the recipe on teardown, we won't be building it)
+        result = runCmd('devtool modify %s' % testrecipe)
+        # Modify one file
+        srctree = os.path.join(self.workspacedir, 'sources', testrecipe)
+        runCmd('echo "Another line" >> README', cwd=srctree)
+        runCmd('git commit -a --amend --no-edit', cwd=srctree)
+        self.add_command_to_tearDown('cd %s; rm %s/*; git checkout %s %s' % (os.path.dirname(recipefile), testrecipe, testrecipe, os.path.basename(recipefile)))
+        result = runCmd('devtool update-recipe %s' % testrecipe)
+        expected_status = [(' M', '.*/%s/readme.patch.gz$' % testrecipe)]
+        self._check_repo_status(os.path.dirname(recipefile), expected_status)
+        patch_gz = os.path.join(os.path.dirname(recipefile), testrecipe, 'readme.patch.gz')
+        result = runCmd('file %s' % patch_gz)
+        if 'gzip compressed data' not in result.output:
+            self.fail('New patch file is not gzipped - file reports:\n%s' % result.output)
+
+    def test_devtool_update_recipe_local_files_subdir(self):
+        # Try devtool extract on a recipe that has a file with subdir= set in
+        # SRC_URI such that it overwrites a file that was in an archive that
+        # was also in SRC_URI
+        # First, modify the recipe
+        testrecipe = 'devtool-test-subdir'
+        recipefile = get_bb_var('FILE', testrecipe)
+        src_uri = get_bb_var('SRC_URI', testrecipe)
+        tempdir = tempfile.mkdtemp(prefix='devtoolqa')
+        self.track_for_cleanup(tempdir)
+        self.track_for_cleanup(self.workspacedir)
+        self.add_command_to_tearDown('bitbake-layers remove-layer */workspace')
+        # (don't bother with cleaning the recipe on teardown, we won't be building it)
+        result = runCmd('devtool modify %s' % testrecipe)
+        testfile = os.path.join(self.workspacedir, 'sources', testrecipe, 'testfile')
+        self.assertTrue(os.path.exists(testfile), 'Extracted source could not be found')
+        with open(testfile, 'r') as f:
+            contents = f.read().rstrip()
+        self.assertEqual(contents, 'Modified version', 'File has apparently not been overwritten as it should have been')
+        # Test devtool update-recipe without modifying any files
+        self.add_command_to_tearDown('cd %s; rm %s/*; git checkout %s %s' % (os.path.dirname(recipefile), testrecipe, testrecipe, os.path.basename(recipefile)))
+        result = runCmd('devtool update-recipe %s' % testrecipe)
+        expected_status = []
         self._check_repo_status(os.path.dirname(recipefile), expected_status)
 
     @testcase(1163)
@@ -1193,6 +1293,49 @@ class DevtoolTests(DevtoolBase):
         s = "Microsoft Made No Profit From Anyone's Zunes Yo"
         result = runCmd("devtool --quiet selftest-reverse \"%s\"" % s)
         self.assertEqual(result.output, s[::-1])
+
+    def _copy_file_with_cleanup(self, srcfile, basedstdir, *paths):
+        dstdir = basedstdir
+        self.assertTrue(os.path.exists(dstdir))
+        for p in paths:
+            dstdir = os.path.join(dstdir, p)
+            if not os.path.exists(dstdir):
+                os.makedirs(dstdir)
+                self.track_for_cleanup(dstdir)
+        dstfile = os.path.join(dstdir, os.path.basename(srcfile))
+        if srcfile != dstfile:
+            shutil.copy(srcfile, dstfile)
+            self.track_for_cleanup(dstfile)
+
+    def test_devtool_load_plugin(self):
+        """Test that devtool loads only the first found plugin in BBPATH."""
+
+        self.track_for_cleanup(self.workspacedir)
+        self.add_command_to_tearDown('bitbake-layers remove-layer */workspace')
+
+        devtool = runCmd("which devtool")
+        fromname = runCmd("devtool --quiet pluginfile")
+        srcfile = fromname.output
+        bbpath = get_bb_var('BBPATH')
+        searchpath = bbpath.split(':') + [os.path.dirname(devtool.output)]
+        plugincontent = []
+        with open(srcfile) as fh:
+            plugincontent = fh.readlines()
+        try:
+            self.assertIn('meta-selftest', srcfile, 'wrong bbpath plugin found')
+            for path in searchpath:
+                self._copy_file_with_cleanup(srcfile, path, 'lib', 'devtool')
+            result = runCmd("devtool --quiet count")
+            self.assertEqual(result.output, '1')
+            result = runCmd("devtool --quiet multiloaded")
+            self.assertEqual(result.output, "no")
+            for path in searchpath:
+                result = runCmd("devtool --quiet bbdir")
+                self.assertEqual(result.output, path)
+                os.unlink(os.path.join(result.output, 'lib', 'devtool', 'bbpath.py'))
+        finally:
+            with open(srcfile, 'w') as fh:
+                fh.writelines(plugincontent)
 
     def _setup_test_devtool_finish_upgrade(self):
         # Check preconditions

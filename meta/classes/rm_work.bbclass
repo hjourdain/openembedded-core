@@ -66,7 +66,7 @@ do_rm_work () {
                 i=dummy
                 break
                 ;;
-            *do_rootfs*|*do_image*|*do_bootimg*|*do_bootdirectdisk*|*do_vmimg*)
+            *do_rootfs*|*do_image*|*do_bootimg*|*do_bootdirectdisk*|*do_vmimg*|*do_write_qemuboot_conf*)
                 i=dummy
                 break
                 ;;
@@ -119,10 +119,10 @@ rm_work_rootfs[cleandirs] = "${WORKDIR}/rootfs"
 
 python () {
     if bb.data.inherits_class('kernel', d):
-        d.appendVar("RM_WORK_EXCLUDE", ' ' + d.getVar("PN", True))
+        d.appendVar("RM_WORK_EXCLUDE", ' ' + d.getVar("PN"))
     # If the recipe name is in the RM_WORK_EXCLUDE, skip the recipe.
-    excludes = (d.getVar("RM_WORK_EXCLUDE", True) or "").split()
-    pn = d.getVar("PN", True)
+    excludes = (d.getVar("RM_WORK_EXCLUDE") or "").split()
+    pn = d.getVar("PN")
     if pn in excludes:
         d.delVarFlag('rm_work_rootfs', 'cleandirs')
         d.delVarFlag('rm_work_populatesdk', 'cleandirs')

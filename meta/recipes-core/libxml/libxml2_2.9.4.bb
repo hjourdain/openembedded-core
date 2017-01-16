@@ -19,6 +19,10 @@ SRC_URI = "ftp://xmlsoft.org/libxml2/libxml2-${PV}.tar.gz;name=libtar \
            file://run-ptest \
            file://python-sitepackages-dir.patch \
            file://libxml-m4-use-pkgconfig.patch \
+           file://libxml2-fix_node_comparison.patch \
+           file://libxml2-CVE-2016-5131.patch \
+           file://libxml2-CVE-2016-4658.patch \
+           file://libxml2-fix_NULL_pointer_derefs.patch \
           "
 
 SRC_URI[libtar.md5sum] = "ae249165c173b1ff386ee8ad676815f5"
@@ -52,7 +56,7 @@ EXTRA_OECONF_linuxstdbase = "--with-debug --with-legacy --with-docbook --with-c1
 
 python populate_packages_prepend () {
     # autonamer would call this libxml2-2, but we don't want that
-    if d.getVar('DEBIAN_NAMES', True):
+    if d.getVar('DEBIAN_NAMES'):
         d.setVar('PKG_libxml2', '${MLPREFIX}libxml2')
 }
 

@@ -201,15 +201,16 @@ class Image():
                 part['num'] = 0
 
             if disk['ptable_format'] == "msdos":
-                if disk['realpart'] > 3:
-                    part['type'] = 'logical'
-                    part['num'] = disk['realpart'] + 1
+                if len(self.partitions) > 4:
+                    if disk['realpart'] > 3:
+                        part['type'] = 'logical'
+                        part['num'] = disk['realpart'] + 1
 
             disk['partitions'].append(num)
             msger.debug("Assigned %s to %s%d, sectors range %d-%d size %d "
                         "sectors (%d bytes)." \
                             % (part['mountpoint'], part['disk_name'], part['num'],
-                               part['start'], part['start'] + part['size'] - 1,
+                               part['start'], disk['offset'] - 1,
                                part['size'], part['size'] * self.sector_size))
 
         # Once all the partitions have been layed out, we can calculate the

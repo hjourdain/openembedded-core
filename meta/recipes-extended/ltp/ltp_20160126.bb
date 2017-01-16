@@ -23,7 +23,7 @@ DEPENDS = "attr libaio libcap acl openssl zip-native"
 DEPENDS_append_libc-musl = " fts "
 EXTRA_OEMAKE_append_libc-musl = " LIBC=musl "
 CFLAGS_append_powerpc64 = " -D__SANE_USERSPACE_TYPES__"
-CFLAGS_append_mips64 = " -D__SANE_USERSPACE_TYPES__"
+CFLAGS_append_mipsarchn64 = " -D__SANE_USERSPACE_TYPES__"
 SRCREV = "fce797676b14f50406718e7ef640b50da66c9b36"
 
 SRC_URI = "git://github.com/linux-test-project/ltp.git \
@@ -62,7 +62,10 @@ SRC_URI = "git://github.com/linux-test-project/ltp.git \
            file://0033-shmat1-Cover-GNU-specific-code-under-__USE_GNU.patch \
            file://0034-periodic_output.patch \
            file://0035-fix-test_proc_kill-hang.patch \
-           file://0001-testcases-network-nfsv4-acl-acl1.c-Security-fix-on-s.patch \
+           file://0036-testcases-network-nfsv4-acl-acl1.c-Security-fix-on-s.patch \
+           file://0037-containers-netns_netlink-Avoid-segmentation-fault.patch \
+           file://0038-run-posix-option-group-test-replace-CWD-qith-PWD.patch \
+           file://fcntl-fix-the-time-def-to-use-time_t.patch \
            "
 
 S = "${WORKDIR}/git"

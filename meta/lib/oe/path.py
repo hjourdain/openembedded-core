@@ -52,7 +52,7 @@ def make_relative_symlink(path):
 
 def format_display(path, metadata):
     """ Prepare a path for display to the user. """
-    rel = relative(metadata.getVar("TOPDIR", True), path)
+    rel = relative(metadata.getVar("TOPDIR"), path)
     if len(rel) > len(path):
         return path
     else:
@@ -92,7 +92,14 @@ def copyhardlinktree(src, dst):
         copytree(src, dst)
 
 def remove(path, recurse=True):
-    """Equivalent to rm -f or rm -rf"""
+    """
+    Equivalent to rm -f or rm -rf
+    NOTE: be careful about passing paths that may contain filenames with
+    wildcards in them (as opposed to passing an actual wildcarded path) -
+    since we use glob.glob() to expand the path. Filenames containing
+    square brackets are particularly problematic since the they may not
+    actually expand to match the original filename.
+    """
     for name in glob.glob(path):
         try:
             os.unlink(name)

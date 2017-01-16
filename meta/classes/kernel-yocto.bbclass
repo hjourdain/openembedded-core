@@ -149,12 +149,18 @@ do_kernel_metadata() {
 	elements="`echo -n ${bsp_definition} ${sccs} ${patches} ${KERNEL_FEATURES}`"
 	if [ -n "${elements}" ]; then
 		scc --force -o ${S}/${meta_dir}:cfg,meta ${includes} ${bsp_definition} ${sccs} ${patches} ${KERNEL_FEATURES}
+		if [ $? -ne 0 ]; then
+			bbfatal_log "Could not generate configuration queue for ${KMACHINE}."
+		fi
 	fi
 
 	# run2: only generate patches for elements that have been passed on the SRC_URI
 	elements="`echo -n ${sccs} ${patches} ${KERNEL_FEATURES}`"
 	if [ -n "${elements}" ]; then
 		scc --force -o ${S}/${meta_dir}:patch --cmds patch ${includes} ${sccs} ${patches} ${KERNEL_FEATURES}
+		if [ $? -ne 0 ]; then
+			bbfatal_log "Could not generate configuration queue for ${KMACHINE}."
+		fi
 	fi
 }
 
@@ -280,11 +286,11 @@ python do_kernel_configcheck() {
     # if KMETA isn't set globally by a recipe using this routine, we need to
     # set the default to 'meta'. Otherwise, kconf_check is not passed a valid
     # meta-series for processing
-    kmeta = d.getVar( "KMETA", True ) or "meta"
+    kmeta = d.getVar("KMETA") or "meta"
     if not os.path.exists(kmeta):
         kmeta = "." + kmeta
 
-    pathprefix = "export PATH=%s:%s; " % (d.getVar('PATH', True), "${S}/scripts/util/")
+    pathprefix = "export PATH=%s:%s; " % (d.getVar('PATH'), "${S}/scripts/util/")
 
     cmd = d.expand("scc --configs -o ${S}/.kernel-meta")
     ret, configs = oe.utils.getstatusoutput("%s%s" % (pathprefix, cmd))
@@ -292,8 +298,8 @@ python do_kernel_configcheck() {
     cmd = d.expand("cd ${S}; kconf_check --report -o ${S}/%s/cfg/ ${B}/.config ${S} %s" % (kmeta,configs))
     ret, result = oe.utils.getstatusoutput("%s%s" % (pathprefix, cmd))
 
-    config_check_visibility = int(d.getVar( "KCONF_AUDIT_LEVEL", True ) or 0)
-    bsp_check_visibility = int(d.getVar( "KCONF_BSP_AUDIT_LEVEL", True ) or 0)
+    config_check_visibility = int(d.getVar("KCONF_AUDIT_LEVEL") or 0)
+    bsp_check_visibility = int(d.getVar("KCONF_BSP_AUDIT_LEVEL") or 0)
 
     # if config check visibility is non-zero, report dropped configuration values
     mismatch_file = d.expand("${S}/%s/cfg/mismatch.txt" % kmeta)

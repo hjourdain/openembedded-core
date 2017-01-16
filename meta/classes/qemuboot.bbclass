@@ -42,7 +42,7 @@ QB_DEFAULT_FSTYPE ?= "ext4"
 QB_OPT_APPEND ?= "-show-cursor"
 
 # Create qemuboot.conf
-ROOTFS_POSTPROCESS_COMMAND += "write_qemuboot_conf; "
+addtask do_write_qemuboot_conf after do_rootfs before do_image
 
 def qemuboot_vars(d):
     build_vars = ['MACHINE', 'TUNE_ARCH', 'DEPLOY_DIR_IMAGE',
@@ -51,21 +51,21 @@ def qemuboot_vars(d):
                 'STAGING_DIR_HOST']
     return build_vars + [k for k in d.keys() if k.startswith('QB_')]
 
-write_qemuboot_conf[vardeps] += "${@' '.join(qemuboot_vars(d))}"
-python write_qemuboot_conf() {
+do_write_qemuboot_conf[vardeps] += "${@' '.join(qemuboot_vars(d))}"
+python do_write_qemuboot_conf() {
     import configparser
 
-    qemuboot = "%s/%s.qemuboot.conf" % (d.getVar('DEPLOY_DIR_IMAGE', True), d.getVar('IMAGE_NAME', True))
-    qemuboot_link = "%s/%s.qemuboot.conf" % (d.getVar('DEPLOY_DIR_IMAGE', True), d.getVar('IMAGE_LINK_NAME', True))
+    qemuboot = "%s/%s.qemuboot.conf" % (d.getVar('DEPLOY_DIR_IMAGE'), d.getVar('IMAGE_NAME'))
+    qemuboot_link = "%s/%s.qemuboot.conf" % (d.getVar('DEPLOY_DIR_IMAGE'), d.getVar('IMAGE_LINK_NAME'))
     cf = configparser.ConfigParser()
     cf.add_section('config_bsp')
     for k in qemuboot_vars(d):
-        cf.set('config_bsp', k, '%s' % d.getVar(k, True))
+        cf.set('config_bsp', k, '%s' % d.getVar(k))
 
     # QB_DEFAULT_KERNEL's value of KERNEL_IMAGETYPE is the name of a symlink
     # to the kernel file, which hinders relocatability of the qb conf.
     # Read the link and replace it with the full filename of the target.
-    kernel_link = os.path.join(d.getVar('DEPLOY_DIR_IMAGE', True), d.getVar('QB_DEFAULT_KERNEL', True))
+    kernel_link = os.path.join(d.getVar('DEPLOY_DIR_IMAGE'), d.getVar('QB_DEFAULT_KERNEL'))
     kernel = os.path.realpath(kernel_link)
     cf.set('config_bsp', 'QB_DEFAULT_KERNEL', kernel)
 

@@ -97,8 +97,15 @@ class Result(object):
     pass
 
 
-def runCmd(command, ignore_status=False, timeout=None, assert_error=True, **options):
+def runCmd(command, ignore_status=False, timeout=None, assert_error=True, native_sysroot=None, **options):
     result = Result()
+
+    if native_sysroot:
+        extra_paths = "%s/sbin:%s/usr/sbin:%s/usr/bin" % \
+                      (native_sysroot, native_sysroot, native_sysroot)
+        nenv = dict(options.get('env', os.environ))
+        nenv['PATH'] = extra_paths + ':' + nenv.get('PATH', '')
+        options['env'] = nenv
 
     cmd = Command(command, timeout=timeout, **options)
     cmd.run()
@@ -149,6 +156,8 @@ def get_bb_vars(variables=None, target=None, postconfig=None):
     """Get values of multiple bitbake variables"""
     bbenv = get_bb_env(target, postconfig=postconfig)
 
+    if variables is not None:
+        variables = variables.copy()
     var_re = re.compile(r'^(export )?(?P<var>\w+)="(?P<value>.*)"$')
     unset_re = re.compile(r'^unset (?P<var>\w+)$')
     lastline = None
@@ -215,15 +224,13 @@ def runqemu(pn, ssh=True):
     import bb.build
 
     tinfoil = bb.tinfoil.Tinfoil()
-    tinfoil.prepare(False)
+    tinfoil.prepare(config_only=False, quiet=True)
     try:
         tinfoil.logger.setLevel(logging.WARNING)
         import oeqa.targetcontrol
         tinfoil.config_data.setVar("TEST_LOG_DIR", "${WORKDIR}/testimage")
         tinfoil.config_data.setVar("TEST_QEMUBOOT_TIMEOUT", "1000")
-        import oe.recipeutils
-        recipefile = oe.recipeutils.pn_to_recipe(tinfoil.cooker, pn)
-        recipedata = oe.recipeutils.parse_recipe(tinfoil.cooker, recipefile, [])
+        recipedata = tinfoil.parse_recipe(pn)
 
         # The QemuRunner log is saved out, but we need to ensure it is at the right
         # log level (and then ensure that since it's a child of the BitBake logger,
@@ -231,7 +238,7 @@ def runqemu(pn, ssh=True):
         logger = logging.getLogger('BitBake.QemuRunner')
         logger.setLevel(logging.DEBUG)
         logger.propagate = False
-        logdir = recipedata.getVar("TEST_LOG_DIR", True)
+        logdir = recipedata.getVar("TEST_LOG_DIR")
 
         qemu = oeqa.targetcontrol.QemuTarget(recipedata)
     finally:
