@@ -31,10 +31,9 @@
 import os
 import sys
 
-from wic import msger, creator
-from wic.utils import misc
+from wic import msger
 from wic.plugin import pluginmgr
-from wic.utils.oe import misc
+from wic.utils.misc import get_bitbake_var
 
 
 def verify_build_env():
@@ -55,7 +54,7 @@ SCRIPTS_CANNED_IMAGE_DIR = "scripts/" + CANNED_IMAGE_DIR
 WIC_DIR = "wic"
 
 def build_canned_image_list(path):
-    layers_path = misc.get_bitbake_var("BBLAYERS")
+    layers_path = get_bitbake_var("BBLAYERS")
     canned_wks_layer_dirs = []
 
     if layers_path is not None:
@@ -146,10 +145,10 @@ def list_source_plugins():
         print("  %s" % plugin)
 
 
-def wic_create(wks_file, rootfs_dir, bootimg_dir, kernel_dir,
-               native_sysroot, scripts_path, image_output_dir,
-               compressor, bmap, debug):
-    """Create image
+def wic_create(wks_file, rootfs_dir, bootimg_dir, kernel_dir, native_sysroot,
+               scripts_path, options):
+    """
+    Create image
 
     wks_file - user-defined OE kickstart file
     rootfs_dir - absolute path to the build's /rootfs dir
@@ -158,8 +157,7 @@ def wic_create(wks_file, rootfs_dir, bootimg_dir, kernel_dir,
     native_sysroot - absolute path to the build's native sysroots dir
     scripts_path - absolute path to /scripts dir
     image_output_dir - dirname to create for image
-    compressor - compressor utility to compress the image
-    bmap - enable generation of .bmap
+    options - wic command line options (debug, bmap, etc)
 
     Normally, the values for the build artifacts values are determined
     by 'wic -e' from the output of the 'bitbake -e' command given an
@@ -185,17 +183,21 @@ def wic_create(wks_file, rootfs_dir, bootimg_dir, kernel_dir,
         print("BUILDDIR not found, exiting. (Did you forget to source oe-init-build-env?)")
         sys.exit(1)
 
-    if debug:
+    if options.debug:
         msger.set_loglevel('debug')
 
-    crobj = creator.Creator()
+    if not os.path.exists(options.outdir):
+        os.makedirs(options.outdir)
 
-    cmdline = ["direct", native_sysroot, kernel_dir, bootimg_dir, rootfs_dir,
-                wks_file, image_output_dir, oe_builddir, compressor or ""]
-    if bmap:
-        cmdline.append('--bmap')
+    pname = 'direct'
+    plugin_class = pluginmgr.get_plugins('imager').get(pname)
+    if not plugin_class:
+        msger.error('Unknown plugin: %s' % pname)
 
-    crobj.main(cmdline)
+    plugin = plugin_class(wks_file, rootfs_dir, bootimg_dir, kernel_dir,
+                          native_sysroot, scripts_path, oe_builddir, options)
+
+    plugin.do_create()
 
     print("\nThe image(s) were created using OE kickstart file:\n  %s" % wks_file)
 
@@ -226,3 +228,35 @@ def wic_list(args, scripts_path):
         return True
 
     return False
+
+def find_canned(scripts_path, file_name):
+    """
+    Find a file either by its path or by name in the canned files dir.
+
+    Return None if not found
+    """
+    if os.path.exists(file_name):
+        return file_name
+
+    layers_canned_wks_dir = build_canned_image_list(scripts_path)
+    for canned_wks_dir in layers_canned_wks_dir:
+        for root, dirs, files in os.walk(canned_wks_dir):
+            for fname in files:
+                if fname == file_name:
+                    fullpath = os.path.join(canned_wks_dir, fname)
+                    return fullpath
+
+def get_custom_config(boot_file):
+    """
+    Get the custom configuration to be used for the bootloader.
+
+    Return None if the file can't be found.
+    """
+    # Get the scripts path of poky
+    scripts_path = os.path.abspath("%s/../.." % os.path.dirname(__file__))
+
+    cfg_file = find_canned(scripts_path, boot_file)
+    if cfg_file:
+        with open(cfg_file, "r") as f:
+            config = f.read()
+        return config

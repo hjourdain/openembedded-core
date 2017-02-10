@@ -6,6 +6,10 @@ import re
 
 class TestExport(oeSelfTest):
 
+    @classmethod
+    def tearDownClass(cls):
+        runCmd("rm -rf /tmp/sdk")
+
     def test_testexport_basic(self):
         """
         Summary: Check basic testexport functionality with only ping test enabled.
@@ -34,15 +38,15 @@ class TestExport(oeSelfTest):
 
         with runqemu('core-image-minimal') as qemu:
             # Attempt to run runexported.py to perform ping test
-            runexported_path = os.path.join(testexport_dir, "runexported.py")
-            testdata_path = os.path.join(testexport_dir, "testdata.json")
-            cmd = "%s -t %s -s %s %s" % (runexported_path, qemu.ip, qemu.server_ip, testdata_path)
+            test_path = os.path.join(testexport_dir, "oe-test")
+            data_file = os.path.join(testexport_dir, 'data', 'testdata.json')
+            manifest = os.path.join(testexport_dir, 'data', 'manifest')
+            cmd = ("%s runtime --test-data-file %s --packages-manifest %s "
+                   "--target-ip %s --server-ip %s --quiet"
+                  % (test_path, data_file, manifest, qemu.ip, qemu.server_ip))
             result = runCmd(cmd)
-            self.assertEqual(0, result.status, 'runexported.py returned a non 0 status')
-
             # Verify ping test was succesful
-            failure = True if 'FAIL' in result.output else False
-            self.assertNotEqual(True, failure, 'ping test failed')
+            self.assertEqual(0, result.status, 'oe-test runtime returned a non 0 status')
 
     def test_testexport_sdk(self):
         """
@@ -61,7 +65,6 @@ class TestExport(oeSelfTest):
         features += 'TEST_SERVER_IP = "192.168.7.1"\n'
         features += 'TEST_TARGET_IP = "192.168.7.1"\n'
         features += 'TEST_SUITES = "ping"\n'
-        features += 'TEST_SUITES_TAGS = "selftest_sdk"\n'
         features += 'TEST_EXPORT_SDK_ENABLED = "1"\n'
         features += 'TEST_EXPORT_SDK_PACKAGES = "nativesdk-tar"\n'
         self.write_config(features)
@@ -75,14 +78,22 @@ class TestExport(oeSelfTest):
         sdk_dir = get_bb_var('TEST_EXPORT_SDK_DIR', 'core-image-minimal')
         tarball_name = "%s.sh" % get_bb_var('TEST_EXPORT_SDK_NAME', 'core-image-minimal')
         tarball_path = os.path.join(testexport_dir, sdk_dir, tarball_name)
-        self.assertEqual(os.path.isfile(tarball_path), True, "Couldn't find SDK tarball: %s" % tarball_path)
+        msg = "Couldn't find SDK tarball: %s" % tarball_path
+        self.assertEqual(os.path.isfile(tarball_path), True, msg)
 
-        # Run runexported.py
-        runexported_path = os.path.join(testexport_dir, "runexported.py")
-        testdata_path = os.path.join(testexport_dir, "testdata.json")
-        cmd = "%s %s" % (runexported_path, testdata_path)
-        result = runCmd(cmd)
-        self.assertEqual(0, result.status, 'runexported.py returned a non 0 status')
+        # Extract SDK and run tar from SDK
+        result = runCmd("%s -y -d /tmp/sdk" % tarball_path)
+        self.assertEqual(0, result.status, "Couldn't extract SDK")
+
+        env_script = result.output.split()[-1]
+        result = runCmd(". %s; which tar" % env_script, shell=True)
+        self.assertEqual(0, result.status, "Couldn't setup SDK environment")
+        is_sdk_tar = True if "/tmp/sdk" in result.output else False
+        self.assertTrue(is_sdk_tar, "Couldn't setup SDK environment")
+
+        tar_sdk = result.output
+        result = runCmd("%s --version" % tar_sdk)
+        self.assertEqual(0, result.status, "Couldn't run tar from SDK")
 
 
 class TestImage(oeSelfTest):
@@ -95,10 +106,11 @@ class TestImage(oeSelfTest):
         Product: oe-core
         Author: Mariano Lopez <mariano.lopez@intel.com>
         """
+        if get_bb_var('DISTRO') == 'poky-tiny':
+            self.skipTest('core-image-full-cmdline not buildable for poky-tiny')
 
         features = 'INHERIT += "testimage"\n'
         features += 'TEST_SUITES = "ping ssh selftest"\n'
-        features += 'TEST_SUITES_TAGS = "selftest_package_install"\n'
         self.write_config(features)
 
         # Build core-image-sato and testimage
@@ -164,7 +176,7 @@ postinst-delayed-t \
                         that script can be delayed to run at first boot.
         Dependencies:   NA
         Steps:          1. Add proper configuration to local.conf file
-                        2. Build a "core-image-full-cmdline" image
+                        2. Build a "core-image-minimal" image
                         3. Verify that file created by postinst_rootfs recipe is
                            present on rootfs dir.
                         4. Boot the image created on qemu and verify that the file
@@ -183,6 +195,7 @@ postinst-delayed-t \
         #Step 1
         features = 'MACHINE = "qemux86"\n'
         features += 'CORE_IMAGE_EXTRA_INSTALL += "%s %s "\n'% (rootfs_pkg, boot_pkg)
+        features += 'IMAGE_FEATURES += "ssh-server-openssh"\n'
         for init_manager in ("sysvinit", "systemd"):
             #for sysvinit no extra configuration is needed,
             if (init_manager is "systemd"):
@@ -197,10 +210,10 @@ postinst-delayed-t \
                 self.write_config(features)
 
                 #Step 2
-                bitbake('core-image-full-cmdline')
+                bitbake('core-image-minimal')
 
                 #Step 3
-                file_rootfs_created = os.path.join(get_bb_var('IMAGE_ROOTFS',"core-image-full-cmdline"),
+                file_rootfs_created = os.path.join(get_bb_var('IMAGE_ROOTFS',"core-image-minimal"),
                                                    file_rootfs_name)
                 found = os.path.isfile(file_rootfs_created)
                 self.assertTrue(found, "File %s was not created at rootfs time by %s" % \
@@ -208,11 +221,11 @@ postinst-delayed-t \
 
                 #Step 4
                 testcommand = 'ls /etc/'+fileboot_name
-                with runqemu('core-image-full-cmdline') as qemu:
+                with runqemu('core-image-minimal') as qemu:
                     sshargs = '-o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no'
                     result = runCmd('ssh %s root@%s %s' % (sshargs, qemu.ip, testcommand))
                     self.assertEqual(result.status, 0, 'File %s was not created at firts boot'% fileboot_name)
 
                 #Step 5
                 bitbake(' %s %s -c cleanall' % (rootfs_pkg, boot_pkg))
-                bitbake('core-image-full-cmdline -c cleanall')
+                bitbake('core-image-minimal -c cleanall')

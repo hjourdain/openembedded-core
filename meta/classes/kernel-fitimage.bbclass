@@ -26,7 +26,7 @@ python __anonymous () {
         # Verified boot will sign the fitImage and append the public key to
         # U-boot dtb. We ensure the U-Boot dtb is deployed before assembling
         # the fitImage:
-        if d.getVar('UBOOT_SIGN_ENABLE'):
+        if d.getVar('UBOOT_SIGN_ENABLE') == "1":
             uboot_pn = d.getVar('PREFERRED_PROVIDER_u-boot') or 'u-boot'
             d.appendVarFlag('do_assemble_fitimage', 'depends', ' %s:do_deploy' % uboot_pn)
 }
@@ -178,17 +178,45 @@ EOF
 fitimage_emit_section_ramdisk() {
 
 	ramdisk_csum="sha1"
+	ramdisk_ctype="none"
+	ramdisk_loadline=""
+	ramdisk_entryline=""
+
+	if [ -n "${UBOOT_RD_LOADADDRESS}" ]; then
+		ramdisk_loadline="load = <${UBOOT_RD_LOADADDRESS}>;"
+	fi
+	if [ -n "${UBOOT_RD_ENTRYPOINT}" ]; then
+		ramdisk_entryline="entry = <${UBOOT_RD_ENTRYPOINT}>;"
+	fi
+
+	case $3 in
+		*.gz)
+			ramdisk_ctype="gzip"
+			;;
+		*.bz2)
+			ramdisk_ctype="bzip2"
+			;;
+		*.lzma)
+			ramdisk_ctype="lzma"
+			;;
+		*.lzo)
+			ramdisk_ctype="lzo"
+			;;
+		*.lz4)
+			ramdisk_ctype="lz4"
+			;;
+	esac
 
 	cat << EOF >> ${1}
                 ramdisk@${2} {
-                        description = "ramdisk image";
+                        description = "${INITRAMFS_IMAGE}";
                         data = /incbin/("${3}");
                         type = "ramdisk";
                         arch = "${UBOOT_ARCH}";
                         os = "linux";
-                        compression = "none";
-                        load = <${UBOOT_RD_LOADADDRESS}>;
-                        entry = <${UBOOT_RD_ENTRYPOINT}>;
+                        compression = "${ramdisk_ctype}";
+                        ${ramdisk_loadline}
+                        ${ramdisk_entryline}
                         hash@1 {
                                 algo = "${ramdisk_csum}";
                         };
@@ -332,8 +360,15 @@ fitimage_assemble() {
 	# Step 4: Prepare a ramdisk section.
 	#
 	if [ "x${ramdiskcount}" = "x1" ] ; then
-		copy_initramfs
-		fitimage_emit_section_ramdisk ${1} "${ramdiskcount}" usr/${INITRAMFS_IMAGE}-${MACHINE}.cpio
+		# Find and use the first initramfs image archive type we find
+		for img in cpio.lz4 cpio.lzo cpio.lzma cpio.xz cpio.gz cpio; do
+			initramfs_path="${DEPLOY_DIR_IMAGE}/${INITRAMFS_IMAGE}-${MACHINE}.${img}"
+			echo "Using $initramfs_path"
+			if [ -e "${initramfs_path}" ]; then
+				fitimage_emit_section_ramdisk ${1} "${ramdiskcount}" "${initramfs_path}"
+				break
+			fi
+		done
 	fi
 
 	fitimage_emit_section_maint ${1} sectend
@@ -410,11 +445,11 @@ kernel_do_deploy_append() {
 
 		if [ -n "${INITRAMFS_IMAGE}" ]; then
 			echo "Copying fit-image-${INITRAMFS_IMAGE}.its source file..."
-			its_initramfs_base_name="${KERNEL_IMAGETYPE}-its-${INITRAMFS_IMAGE}-${PV}-${PR}-${MACHINE}-${DATETIME}"
-			its_initramfs_symlink_name=${KERNEL_IMAGETYPE}-its-${INITRAMFS_IMAGE}-${MACHINE}
+			its_initramfs_base_name="fitImage-its-${INITRAMFS_IMAGE}-${PV}-${PR}-${MACHINE}-${DATETIME}"
+			its_initramfs_symlink_name=fitImage-its-${INITRAMFS_IMAGE}-${MACHINE}
 			install -m 0644 fit-image-${INITRAMFS_IMAGE}.its ${DEPLOYDIR}/${its_initramfs_base_name}.its
-			fit_initramfs_base_name="${KERNEL_IMAGETYPE}-${INITRAMFS_IMAGE}-${PV}-${PR}-${MACHINE}-${DATETIME}"
-			fit_initramfs_symlink_name=${KERNEL_IMAGETYPE}-${INITRAMFS_IMAGE}-${MACHINE}
+			fit_initramfs_base_name="fitImage-${INITRAMFS_IMAGE}-${PV}-${PR}-${MACHINE}-${DATETIME}"
+			fit_initramfs_symlink_name=fitImage-${INITRAMFS_IMAGE}-${MACHINE}
 			install -m 0644 arch/${ARCH}/boot/fitImage-${INITRAMFS_IMAGE} ${DEPLOYDIR}/${fit_initramfs_base_name}.bin
 		fi
 

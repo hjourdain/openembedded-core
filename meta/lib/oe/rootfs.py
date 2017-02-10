@@ -262,7 +262,12 @@ class Rootfs(object, metaclass=ABCMeta):
             # Remove components that we don't need if it's a read-only rootfs
             unneeded_pkgs = self.d.getVar("ROOTFS_RO_UNNEEDED").split()
             pkgs_installed = image_list_installed_packages(self.d)
-            pkgs_to_remove = [pkg for pkg in pkgs_installed if pkg in unneeded_pkgs]
+            # Make sure update-alternatives is last on the command line, so
+            # that it is removed last. This makes sure that its database is
+            # available while uninstalling packages, allowing alternative
+            # symlinks of packages to be uninstalled to be managed correctly.
+            provider = self.d.getVar("VIRTUAL-RUNTIME_update-alternatives")
+            pkgs_to_remove = sorted([pkg for pkg in pkgs_installed if pkg in unneeded_pkgs], key=lambda x: x == provider)
 
             if len(pkgs_to_remove) > 0:
                 self.pm.remove(pkgs_to_remove, False)
@@ -298,10 +303,10 @@ class Rootfs(object, metaclass=ABCMeta):
             bb.note("> Executing %s intercept ..." % script)
 
             try:
-                subprocess.check_call(script_full)
+                subprocess.check_output(script_full)
             except subprocess.CalledProcessError as e:
-                bb.warn("The postinstall intercept hook '%s' failed (exit code: %d)! See log for details!" %
-                        (script, e.returncode))
+                bb.warn("The postinstall intercept hook '%s' failed (exit code: %d)! See log for details! (Output: %s)" %
+                        (script, e.returncode, e.output))
 
                 with open(script_full) as intercept:
                     registered_pkgs = None
@@ -952,7 +957,7 @@ class OpkgRootfs(DpkgOpkgRootfs):
         if self.progress_reporter:
             self.progress_reporter.next_stage()
 
-        self._setup_dbg_rootfs(['/etc', '/var/lib/opkg', '/usr/lib/ssl'])
+        self._setup_dbg_rootfs(['/var/lib/opkg'])
 
         execute_pre_post_process(self.d, opkg_post_process_cmds)
 

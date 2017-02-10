@@ -22,6 +22,8 @@ if [ x"$D" = "x" ]; then
 fi
 }
 
+PACKAGE_WRITE_DEPS += "kmod-native depmodwrapper-cross"
+
 do_install_append() {
 	install -d ${D}${sysconfdir}/modules-load.d/ ${D}${sysconfdir}/modprobe.d/
 }
@@ -31,6 +33,8 @@ PACKAGESPLITFUNCS_prepend = "split_kernel_module_packages "
 KERNEL_MODULES_META_PACKAGE ?= "kernel-modules"
 
 KERNEL_MODULE_PACKAGE_PREFIX ?= ""
+KERNEL_MODULE_PACKAGE_SUFFIX ?= "-${KERNEL_VERSION}"
+KERNEL_MODULE_PROVIDE_VIRTUAL ?= "1"
 
 python split_kernel_module_packages () {
     import re
@@ -119,10 +123,17 @@ python split_kernel_module_packages () {
         # Avoid automatic -dev recommendations for modules ending with -dev.
         d.setVarFlag('RRECOMMENDS_' + pkg, 'nodeprrecs', 1)
 
+        # Provide virtual package without postfix
+        providevirt = d.getVar('KERNEL_MODULE_PROVIDE_VIRTUAL')
+        if providevirt == "1":
+           postfix = format.split('%s')[1]
+           d.setVar('RPROVIDES_' + pkg, pkg.replace(postfix, ''))
+
     module_regex = '^(.*)\.k?o$'
 
     module_pattern_prefix = d.getVar('KERNEL_MODULE_PACKAGE_PREFIX')
-    module_pattern = module_pattern_prefix + 'kernel-module-%s'
+    module_pattern_suffix = d.getVar('KERNEL_MODULE_PACKAGE_SUFFIX')
+    module_pattern = module_pattern_prefix + 'kernel-module-%s' + module_pattern_suffix
 
     postinst = d.getVar('pkg_postinst_modules')
     postrm = d.getVar('pkg_postrm_modules')

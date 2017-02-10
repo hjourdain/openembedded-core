@@ -54,6 +54,14 @@ ALL_MULTILIB_PACKAGE_ARCHS = "${@all_multilib_tune_values(d, 'PACKAGE_ARCHS')}"
 # rpm is used for the per-file dependency identification
 PACKAGE_DEPENDS += "rpm-native"
 
+
+# If your postinstall can execute at rootfs creation time rather than on
+# target but depends on a native/cross tool in order to execute, you need to
+# list that tool in PACKAGE_WRITE_DEPENDS. Target package dependencies belong
+# in the package dependencies as normal, this is just for native/cross support
+# tools at rootfs build time.
+PACKAGE_WRITE_DEPS ??= ""
+
 def legitimize_package_name(s):
     """
     Make sure package names are legitimate strings
@@ -406,7 +414,8 @@ def copydebugsources(debugsrcdir, d):
         bb.utils.mkdirhier(basepath)
         cpath.updatecache(basepath)
 
-        processdebugsrc =  "LC_ALL=C ; sort -z -u '%s' | egrep -v -z '(<internal>|<built-in>)$' | "
+        # Ignore files from the recipe sysroots (target and native)
+        processdebugsrc =  "LC_ALL=C ; sort -z -u '%s' | egrep -v -z '((<internal>|<built-in>)$|/.*recipe-sysroot.*/)' | "
         # We need to ignore files that are not actually ours
         # we do this by only paying attention to items from this package
         processdebugsrc += "fgrep -zw '%s' | "

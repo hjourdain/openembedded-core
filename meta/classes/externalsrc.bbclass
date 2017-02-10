@@ -4,7 +4,7 @@
 # Copyright (C) 2009 Chris Larson <clarson@kergoth.com>
 # Released under the MIT license (see COPYING.MIT for the terms)
 #
-# externalsrc.bbclass enables use of an existing source tree, usually external to 
+# externalsrc.bbclass enables use of an existing source tree, usually external to
 # the build system to build a piece of software rather than the usual fetch/unpack/patch
 # process.
 #
@@ -108,6 +108,10 @@ python () {
         # We don't want the workdir to go away
         d.appendVar('RM_WORK_EXCLUDE', ' ' + d.getVar('PN'))
 
+        bb.build.addtask('do_buildclean',
+                         'do_clean' if d.getVar('S') == d.getVar('B') else None,
+                         None, d)
+
         # If B=S the same builddir is used even for different architectures.
         # Thus, use a shared CONFIGURESTAMPFILE and STAMP directory so that
         # change of do_configure task hash is correctly detected and stamps are
@@ -120,11 +124,13 @@ python () {
 }
 
 python externalsrc_configure_prefunc() {
+    s_dir = d.getVar('S')
     # Create desired symlinks
     symlinks = (d.getVar('EXTERNALSRC_SYMLINKS') or '').split()
+    newlinks = []
     for symlink in symlinks:
         symsplit = symlink.split(':', 1)
-        lnkfile = os.path.join(d.getVar('S'), symsplit[0])
+        lnkfile = os.path.join(s_dir, symsplit[0])
         target = d.expand(symsplit[1])
         if len(symsplit) > 1:
             if os.path.islink(lnkfile):
@@ -136,11 +142,35 @@ python externalsrc_configure_prefunc() {
                 # File/dir exists with same name as link, just leave it alone
                 continue
             os.symlink(target, lnkfile)
+            newlinks.append(symsplit[0])
+    # Hide the symlinks from git
+    try:
+        git_exclude_file = os.path.join(s_dir, '.git/info/exclude')
+        if os.path.exists(git_exclude_file):
+            with open(git_exclude_file, 'r+') as efile:
+                elines = efile.readlines()
+                for link in newlinks:
+                    if link in elines or '/'+link in elines:
+                        continue
+                    efile.write('/' + link + '\n')
+    except IOError as ioe:
+        bb.note('Failed to hide EXTERNALSRC_SYMLINKS from git')
 }
 
 python externalsrc_compile_prefunc() {
     # Make it obvious that this is happening, since forgetting about it could lead to much confusion
     bb.plain('NOTE: %s: compiling from external source tree %s' % (d.getVar('PN'), d.getVar('EXTERNALSRC')))
+}
+
+do_buildclean[dirs] = "${S} ${B}"
+do_buildclean[nostamp] = "1"
+do_buildclean[doc] = "Call 'make clean' or equivalent in ${B}"
+externalsrc_do_buildclean() {
+	if [ -e Makefile -o -e makefile -o -e GNUmakefile ]; then
+		oe_runmake clean || die "make failed"
+	else
+		bbnote "nothing to do - no makefile found"
+	fi
 }
 
 def srctree_hash_files(d, srcdir=None):
@@ -189,3 +219,5 @@ def srctree_configure_hash_files(d):
                 if f in search_files:
                     out_items.append('%s:True' % os.path.join(root, f))
     return ' '.join(out_items)
+
+EXPORT_FUNCTIONS do_buildclean

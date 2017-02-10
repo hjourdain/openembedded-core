@@ -55,10 +55,7 @@ def write_rpm_perfiledata(srcname, d):
     # OE-core dependencies a.k.a. RPM requires
     outdepends = workdir + "/" + srcname + ".requires"
 
-    try:
-        dependsfile = open(outdepends, 'w')
-    except OSError:
-        bb.fatal("unable to open spec file for writing")
+    dependsfile = open(outdepends, 'w')
 
     dump_filerdeps('RDEPENDS', dependsfile, d)
 
@@ -68,10 +65,7 @@ def write_rpm_perfiledata(srcname, d):
     # OE-core / RPM Provides
     outprovides = workdir + "/" + srcname + ".provides"
 
-    try:
-        providesfile = open(outprovides, 'w')
-    except OSError:
-        bb.fatal("unable to open spec file for writing")
+    providesfile = open(outprovides, 'w')
 
     dump_filerdeps('RPROVIDES', providesfile, d)
 
@@ -620,10 +614,7 @@ python write_specfile () {
         spec_scriptlets_top.append('')
 
     # Write the SPEC file
-    try:
-        specfile = open(outspecfile, 'w')
-    except OSError:
-        bb.fatal("unable to open spec file for writing")
+    specfile = open(outspecfile, 'w')
 
     # RPMSPEC_PREAMBLE is a way to add arbitrary text to the top
     # of the generated spec file
@@ -772,6 +763,7 @@ python do_package_write_rpm () {
 do_package_write_rpm[dirs] = "${PKGWRITEDIRRPM}"
 do_package_write_rpm[cleandirs] = "${PKGWRITEDIRRPM}"
 do_package_write_rpm[umask] = "022"
+do_package_write_rpm[depends] += "${@oe.utils.build_depends_string(d.getVar('PACKAGE_WRITE_DEPS'), 'do_populate_sysroot')}"
 addtask package_write_rpm after do_packagedata do_package
 
 PACKAGEINDEXDEPS += "rpm-native:do_populate_sysroot"

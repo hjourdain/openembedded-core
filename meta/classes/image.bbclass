@@ -9,11 +9,9 @@ TOOLCHAIN_TARGET_TASK += "${PACKAGE_INSTALL}"
 TOOLCHAIN_TARGET_TASK_ATTEMPTONLY += "${PACKAGE_INSTALL_ATTEMPTONLY}"
 POPULATE_SDK_POST_TARGET_COMMAND += "rootfs_sysroot_relativelinks; "
 
-inherit gzipnative
-
 LICENSE = "MIT"
 PACKAGES = ""
-DEPENDS += "${MLPREFIX}qemuwrapper-cross ${MLPREFIX}depmodwrapper-cross"
+DEPENDS += "${MLPREFIX}qemuwrapper-cross depmodwrapper-cross"
 RDEPENDS += "${PACKAGE_INSTALL} ${LINGUAS_INSTALL}"
 RRECOMMENDS += "${PACKAGE_INSTALL_ATTEMPTONLY}"
 
@@ -153,6 +151,9 @@ def build_uboot(d):
 IMAGE_TYPE_uboot = "${@build_uboot(d)}"
 inherit ${IMAGE_TYPE_uboot}
 
+IMAGE_TYPE_wic = "image_types_wic"
+inherit ${IMAGE_TYPE_wic}
+
 python () {
     deps = " " + imagetypes_getdepends(d)
     d.appendVarFlag('do_rootfs', 'depends', deps)
@@ -160,7 +161,7 @@ python () {
     deps = ""
     for dep in (d.getVar('EXTRA_IMAGEDEPENDS') or "").split():
         deps += " %s:do_populate_sysroot" % dep
-    d.appendVarFlag('do_build', 'depends', deps)
+    d.appendVarFlag('do_image_complete', 'depends', deps)
 
     #process IMAGE_FEATURES, we must do this before runtime_mapping_rename
     #Check for replaces image features
@@ -270,7 +271,7 @@ fakeroot python do_rootfs () {
 do_rootfs[dirs] = "${TOPDIR}"
 do_rootfs[cleandirs] += "${S} ${IMGDEPLOYDIR}"
 do_rootfs[umask] = "022"
-addtask rootfs before do_build
+addtask rootfs before do_build after do_prepare_recipe_sysroot
 
 fakeroot python do_image () {
     from oe.utils import execute_pre_post_process
@@ -328,29 +329,6 @@ fakeroot python do_image_qa () {
         bb.fatal("QA errors found whilst validating image: %s\n%s" % (imgname, qamsg))
 }
 addtask do_image_qa after do_image_complete before do_build
-
-#
-# Write environment variables used by wic
-# to tmp/sysroots/<machine>/imgdata/<image>.env
-#
-python do_rootfs_wicenv () {
-    wicvars = d.getVar('WICVARS')
-    if not wicvars:
-        return
-
-    stdir = d.getVar('STAGING_DIR_TARGET')
-    outdir = os.path.join(stdir, 'imgdata')
-    bb.utils.mkdirhier(outdir)
-    basename = d.getVar('IMAGE_BASENAME')
-    with open(os.path.join(outdir, basename) + '.env', 'w') as envf:
-        for var in wicvars.split():
-            value = d.getVar(var)
-            if value:
-                envf.write('%s="%s"\n' % (var, value.strip()))
-}
-addtask do_rootfs_wicenv after do_image before do_image_wic
-do_rootfs_wicenv[vardeps] += "${WICVARS}"
-do_rootfs_wicenv[prefuncs] = 'set_image_size'
 
 def setup_debugfs_variables(d):
     d.appendVar('IMAGE_ROOTFS', '-dbg')
@@ -621,9 +599,9 @@ do_patch[noexec] = "1"
 do_configure[noexec] = "1"
 do_compile[noexec] = "1"
 do_install[noexec] = "1"
-do_populate_sysroot[noexec] = "1"
+deltask do_populate_sysroot
 do_package[noexec] = "1"
-do_package_qa[noexec] = "1"
+deltask do_package_qa
 do_packagedata[noexec] = "1"
 do_package_write_ipk[noexec] = "1"
 do_package_write_deb[noexec] = "1"

@@ -51,7 +51,7 @@ if bitbake_exe:
 else:
     bitbake_main = None
 
-from wic.utils.oe.misc import get_bitbake_var, BB_VARS
+from wic.utils.misc import get_bitbake_var, BB_VARS
 from wic.utils.errors import WicError
 from wic import engine
 from wic import help as hlp
@@ -88,7 +88,7 @@ def wic_create_subcommand(args, usage_str):
     """
     parser = optparse.OptionParser(usage=usage_str)
 
-    parser.add_option("-o", "--outdir", dest="outdir",
+    parser.add_option("-o", "--outdir", dest="outdir", default='.',
                       help="name of directory to create image in")
     parser.add_option("-e", "--image-name", dest="image_name",
                       help="name of the image to use the artifacts from "
@@ -175,11 +175,22 @@ def wic_create_subcommand(args, usage_str):
 
         rootfs_dir = get_bitbake_var("IMAGE_ROOTFS", options.image_name)
         kernel_dir = get_bitbake_var("DEPLOY_DIR_IMAGE", options.image_name)
-        native_sysroot = get_bitbake_var("STAGING_DIR_NATIVE",
-                                         options.image_name)
+        native_sysroot = get_bitbake_var("RECIPE_SYSROOT_NATIVE",
+                                         "wic-tools", cache=False)
     else:
         if options.build_rootfs:
             print("Image name is not specified, exiting. (Use -e/--image-name to specify it)\n")
+            sys.exit(1)
+        native_sysroot = options.native_sysroot
+
+    if not native_sysroot or not os.path.isdir(native_sysroot):
+        print("Building wic-tools...\n")
+        if bitbake_main(BitBakeConfigParameters("bitbake wic-tools".split()),
+                        cookerdata.CookerConfiguration()):
+            sys.exit(1)
+        native_sysroot = get_bitbake_var("RECIPE_SYSROOT_NATIVE", "wic-tools")
+        if not native_sysroot:
+            print("Unable to find the location of the native tools sysroot to use\n")
             sys.exit(1)
 
     wks_file = args[0]
@@ -191,10 +202,6 @@ def wic_create_subcommand(args, usage_str):
                   "to list available images, or specify a fully-qualified OE "\
                   "kickstart (.wks) filename)\n" % args[0])
             sys.exit(1)
-
-    image_output_dir = ""
-    if options.outdir:
-        image_output_dir = options.outdir
 
     if not options.image_name:
         rootfs_dir = ''
@@ -243,8 +250,7 @@ def wic_create_subcommand(args, usage_str):
 
     print("Creating image(s)...\n")
     engine.wic_create(wks_file, rootfs_dir, bootimg_dir, kernel_dir,
-                      native_sysroot, scripts_path, image_output_dir,
-                      options.compressor, options.bmap, options.debug)
+                      native_sysroot, scripts_path, options)
 
 
 def wic_list_subcommand(args, usage_str):

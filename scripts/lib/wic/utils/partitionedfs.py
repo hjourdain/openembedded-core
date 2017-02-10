@@ -21,7 +21,7 @@
 import os
 from wic import msger
 from wic.utils.errors import ImageError
-from wic.utils.oe.misc import exec_cmd, exec_native_cmd
+from wic.utils.misc import exec_native_cmd
 from wic.filemap import sparse_copy
 
 # Overhead of the MBR partitioning scheme (just one sector)
@@ -201,7 +201,8 @@ class Image():
                 part['num'] = 0
 
             if disk['ptable_format'] == "msdos":
-                if len(self.partitions) > 4:
+                # only count the partitions that are in partition table
+                if len([p for p in self.partitions if not p['no_table']]) > 4:
                     if disk['realpart'] > 3:
                         part['type'] = 'logical'
                         part['num'] = disk['realpart'] + 1
@@ -315,6 +316,13 @@ class Image():
                                 (part['num'], part['uuid'], disk['disk'].device),
                                 self.native_sysroot)
 
+            if part['label'] and disk['ptable_format'] == "gpt":
+                msger.debug("partition %d: set name to %s" % \
+                            (part['num'], part['label']))
+                exec_native_cmd("parted -s %s name %d %s" % \
+                                (disk['disk'].device, part['num'], part['label']),
+                                self.native_sysroot)
+
             if part['boot']:
                 flag_name = "legacy_boot" if disk['ptable_format'] == 'gpt' else "boot"
                 msger.debug("Set '%s' flag for partition '%s' on disk '%s'" % \
@@ -342,10 +350,9 @@ class Image():
         if self.disks:
             for dev in self.disks:
                 disk = self.disks[dev]
-                try:
+                if hasattr(disk['disk'], 'cleanup'):
                     disk['disk'].cleanup()
-                except:
-                    pass
+
         # remove partition images
         for image in self.partimages:
             if os.path.isfile(image):

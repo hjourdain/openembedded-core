@@ -81,12 +81,14 @@ RDEPENDS_eudev-hwdb += "eudev"
 RRECOMMENDS_${PN} += "udev-cache"
 
 RPROVIDES_${PN} = "hotplug udev"
+RPROVIDES_eudev-hwdb += "udev-hwdb"
 
 python () {
     if bb.utils.contains ('DISTRO_FEATURES', 'systemd', True, False, d):
         raise bb.parse.SkipPackage("'systemd' in DISTRO_FEATURES")
 }
 
+PACKAGE_WRITE_DEPS += "qemu-native"
 pkg_postinst_eudev-hwdb () {
     if test -n "$D"; then
         ${@qemu_run_binary(d, '$D', '${bindir}/udevadm')} hwdb --update --root $D

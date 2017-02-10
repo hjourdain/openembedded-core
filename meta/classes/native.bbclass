@@ -95,7 +95,7 @@ libdir .= "${NATIVE_PACKAGE_PATH_SUFFIX}"
 libexecdir .= "${NATIVE_PACKAGE_PATH_SUFFIX}"
 
 do_populate_sysroot[sstate-inputdirs] = "${SYSROOT_DESTDIR}/${STAGING_DIR_NATIVE}/"
-do_populate_sysroot[sstate-outputdirs] = "${STAGING_DIR_NATIVE}/"
+do_populate_sysroot[sstate-outputdirs] = "${STAGING_DIR}-components/${PACKAGE_ARCH}/${PN}"
 
 # Since we actually install these into situ there is no staging prefix
 STAGING_DIR_HOST = ""
@@ -114,6 +114,10 @@ CLASSOVERRIDE = "class-native"
 MACHINEOVERRIDES = ""
 
 PATH_prepend = "${COREBASE}/scripts/native-intercept:"
+
+# This class encodes staging paths into its scripts data so can only be
+# reused if we manipulate the paths.
+SSTATE_SCAN_CMD ?= "${SSTATE_SCAN_CMD_NATIVE}"
 
 python native_virtclass_handler () {
     classextend = e.data.getVar('BBCLASSEXTEND') or ""

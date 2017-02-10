@@ -87,7 +87,7 @@ def logger_create():
 log = logger_create()
 
 def get_args_parser():
-    description = "Script that runs unit tests agains bitbake and other Yocto related tools. The goal is to validate tools functionality and metadata integrity. Refer to https://wiki.yoctoproject.org/wiki/Oe-selftest for more information."
+    description = "Script that runs unit tests against bitbake and other Yocto related tools. The goal is to validate tools functionality and metadata integrity. Refer to https://wiki.yoctoproject.org/wiki/Oe-selftest for more information."
     parser = argparse_oe.ArgumentParser(description=description)
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument('-r', '--run-tests', required=False, action='store', nargs='*', dest="run_tests", default=None, help='Select what tests to run (modules, classes or test methods). Format should be: <module>.<class>.<test_method>')
@@ -131,7 +131,19 @@ def preflight_check():
         os.chdir(builddir)
 
     if not "meta-selftest" in get_bb_var("BBLAYERS"):
-        log.error("You don't seem to have the meta-selftest layer in BBLAYERS")
+        log.warn("meta-selftest layer not found in BBLAYERS, adding it")
+        meta_selftestdir = os.path.join(
+                get_bb_var("BBLAYERS_FETCH_DIR"),
+                'meta-selftest')
+        if os.path.isdir(meta_selftestdir):
+            runCmd("bitbake-layers add-layer %s" %meta_selftestdir)
+        else:
+            log.error("could not locate meta-selftest in:\n%s"
+                    %meta_selftestdir)
+            return False
+
+    if "buildhistory.bbclass" in get_bb_var("BBINCLUDED"):
+        log.error("You have buildhistory enabled already and this isn't recommended for selftest, please disable it first.")
         return False
 
     log.info("Running bitbake -p")
@@ -603,8 +615,8 @@ def main():
             r_branches = set(r_branches.replace('origin/', '').split())
             l_branches = {str(branch) for branch in repo.branches}
             branch = '%s/%s/%s' % (metadata['hostname'],
-                                   metadata['layers']['meta']['branch'],
-                                   metadata['machine'])
+                                   metadata['layers']['meta'].get('branch', '(nogit)'),
+                                   metadata['config']['MACHINE'])
 
             if branch in l_branches:
                 log.debug('Found branch in local repository, checking out')
@@ -631,10 +643,10 @@ def main():
             layer_info = ''
             for layer, values in metadata['layers'].items():
                 layer_info = '%s%-17s = %s:%s\n' % (layer_info, layer,
-                              values['branch'], values['revision'])
-            msg = 'Selftest for build %s of %s %s for machine %s on %s\n\n%s' % (
-                   log_prefix[12:], metadata['distro'], metadata['distro_version'],
-                   metadata['machine'], metadata['hostname'], layer_info)
+                              values.get('branch', '(nogit)'), values.get('commit', '0'*40))
+            msg = 'Selftest for build %s of %s for machine %s on %s\n\n%s' % (
+                   log_prefix[12:], metadata['distro']['pretty_name'],
+                   metadata['config']['MACHINE'], metadata['hostname'], layer_info)
 
             log.debug('Commiting results to local repository')
             repo.index.commit(msg)

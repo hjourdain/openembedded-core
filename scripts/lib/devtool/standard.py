@@ -224,8 +224,17 @@ def add(args, config, basepath, workspace):
 
     tinfoil = setup_tinfoil(config_only=True, basepath=basepath)
     try:
-        rd = tinfoil.parse_recipe_file(recipefile, False)
+        try:
+            rd = tinfoil.parse_recipe_file(recipefile, False)
+        except Exception as e:
+            logger.error(str(e))
+            rd = None
         if not rd:
+            # Parsing failed. We just created this recipe and we shouldn't
+            # leave it in the workdir or it'll prevent bitbake from starting
+            movefn = '%s.parsefailed' % recipefile
+            logger.error('Parsing newly created recipe failed, moving recipe to %s for reference. If this looks to be caused by the recipe itself, please report this error.' % movefn)
+            shutil.move(recipefile, movefn)
             return 1
 
         if args.fetchuri and not args.no_git:
@@ -465,7 +474,21 @@ def _extract_source(srctree, keep_temp, devbranch, sync, d, tinfoil):
         os.rmdir(srctree)
 
     initial_rev = None
-    tempdir = tempfile.mkdtemp(prefix='devtool')
+    # We need to redirect WORKDIR, STAMPS_DIR etc. under a temporary
+    # directory so that:
+    # (a) we pick up all files that get unpacked to the WORKDIR, and
+    # (b) we don't disturb the existing build
+    # However, with recipe-specific sysroots the sysroots for the recipe
+    # will be prepared under WORKDIR, and if we used the system temporary
+    # directory (i.e. usually /tmp) as used by mkdtemp by default, then
+    # our attempts to hardlink files into the recipe-specific sysroots
+    # will fail on systems where /tmp is a different filesystem, and it
+    # would have to fall back to copying the files which is a waste of
+    # time. Put the temp directory under the WORKDIR to prevent that from
+    # being a problem.
+    tempbasedir = d.getVar('WORKDIR')
+    bb.utils.mkdirhier(tempbasedir)
+    tempdir = tempfile.mkdtemp(prefix='devtooltmp-', dir=tempbasedir)
     try:
         tinfoil.logger.setLevel(logging.WARNING)
 

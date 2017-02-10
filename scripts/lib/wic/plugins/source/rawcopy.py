@@ -19,7 +19,7 @@ import os
 
 from wic import msger
 from wic.pluginbase import SourcePlugin
-from wic.utils.oe.misc import exec_cmd, get_bitbake_var
+from wic.utils.misc import exec_cmd, get_bitbake_var
 from wic.filemap import sparse_copy
 
 class RawCopyPlugin(SourcePlugin):
@@ -84,4 +84,3 @@ class RawCopyPlugin(SourcePlugin):
             part.size = filesize
 
         part.source_file = dst
-

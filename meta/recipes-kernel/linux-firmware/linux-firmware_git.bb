@@ -186,7 +186,7 @@ SRC_URI[iwlwifi-19.sha256sum] = "2034470df64d323b827c4f2d4d0d55be2846b7360179b55
 
 S = "${WORKDIR}/git"
 
-inherit allarch update-alternatives
+inherit allarch
 
 CLEANBROKEN = "1"
 
@@ -267,6 +267,8 @@ FILES_${PN}-ath9k = " \
   /lib/firmware/ar7010*.fw \
   /lib/firmware/htc_9271.fw \
   /lib/firmware/htc_7010.fw \
+  /lib/firmware/ath9k_htc/htc_7010-1.4.0.fw \
+  /lib/firmware/ath9k_htc/htc_9271-1.4.0.fw \
 "
 
 RDEPENDS_${PN}-ar9170 += "${PN}-atheros-license"
@@ -413,10 +415,6 @@ FILES_${PN}-vt6656 = " \
 RDEPENDS_${PN}-vt6656 = "${PN}-vt6656-license"
 
 # For broadcom
-#
-# WARNING: The ALTERNATIVE_* variables are not using ${PN} because of
-# a bug in bitbake; when this is fixed and bitbake learns how to proper
-# pass variable flags with expansion we can rework this patch.
 
 LICENSE_${PN}-bcm4329 = "Firmware-broadcom_bcm43xx"
 LICENSE_${PN}-bcm4330 = "Firmware-broadcom_bcm43xx"
@@ -451,24 +449,6 @@ FILES_${PN}-bcm43430 = " \
 FILES_${PN}-bcm4354 = " \
   /lib/firmware/brcm/brcmfmac4354-sdio.bin \
 "
-
-ALTERNATIVE_LINK_NAME[brcmfmac-sdio.bin] = "/lib/firmware/brcm/brcmfmac-sdio.bin"
-
-ALTERNATIVE_linux-firmware-bcm4334 = "brcmfmac-sdio.bin"
-ALTERNATIVE_TARGET_linux-firmware-bcm4334[brcmfmac-sdio.bin] = "/lib/firmware/brcm/brcmfmac4334-sdio.bin"
-ALTERNATIVE_linux-firmware-bcm43340 = "brcmfmac-sdio.bin"
-ALTERNATIVE_TARGET_linux-firmware-bcm43340[brcmfmac-sdio.bin] = "/lib/firmware/brcm/brcmfmac43340-sdio.bin"
-ALTERNATIVE_linux_firmware-bcm4354 = "brcmfmac-sdio.bin"
-ALTERNATIVE_TARGET_linux-firmware-bcm4354[brcmfmac-sdio.bin] = "/lib/firmware/brcm/brcmfmac4354-sdio.bin"
-ALTERNATIVE_linux-firmware-bcm4329 = "brcmfmac-sdio.bin"
-ALTERNATIVE_TARGET_linux-firmware-bcm4329[brcmfmac-sdio.bin] = "/lib/firmware/brcm/brcmfmac4329-sdio.bin"
-ALTERNATIVE_linux-firmware-bcm4330 = "brcmfmac-sdio.bin"
-ALTERNATIVE_TARGET_linux-firmware-bcm4330[brcmfmac-sdio.bin] = "/lib/firmware/brcm/brcmfmac4330-sdio.bin"
-ALTERNATIVE_linux-firmware-bcm4339 = "brcmfmac-sdio.bin"
-ALTERNATIVE_TARGET_linux-firmware-bcm4339[brcmfmac-sdio.bin] = "/lib/firmware/brcm/brcmfmac4339-sdio.bin"
-ALTERNATIVE_PRIORITY_linux-firmware-bcm4339[brcmfmac-sdio.bin] = "20"
-ALTERNATIVE_linux-firmware-bcm43430 = "brcmfmac-sdio.bin"
-ALTERNATIVE_TARGET_linux-firmware-bcm43430[brcmfmac-sdio.bin] = "/lib/firmware/brcm/brcmfmac43430-sdio.bin"
 
 RDEPENDS_${PN}-bcm4329 += "${PN}-broadcom-license"
 RDEPENDS_${PN}-bcm4330 += "${PN}-broadcom-license"

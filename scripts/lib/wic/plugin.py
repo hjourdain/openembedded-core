@@ -15,12 +15,13 @@
 # with this program; if not, write to the Free Software Foundation, Inc., 59
 # Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-import os, sys
+import os
+import sys
 
 from wic import msger
 from wic import pluginbase
 from wic.utils import errors
-from wic.utils.oe.misc import get_bitbake_var
+from wic.utils.misc import get_bitbake_var
 
 __ALL__ = ['PluginMgr', 'pluginmgr']
 

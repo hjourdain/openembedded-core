@@ -247,8 +247,6 @@ class DevtoolTests(DevtoolBase):
 
     @testcase(1162)
     def test_devtool_add_library(self):
-        # We don't have the ability to pick up this dependency automatically yet...
-        bitbake('libusb1')
         # Fetch source
         tempdir = tempfile.mkdtemp(prefix='devtoolqa')
         self.track_for_cleanup(tempdir)
@@ -277,10 +275,13 @@ class DevtoolTests(DevtoolBase):
         result = runCmd('recipetool setvar %s EXTRA_OECMAKE -- \'-DPYTHON_BINDINGS=OFF -DLIBFTDI_CMAKE_CONFIG_DIR=${datadir}/cmake/Modules\'' % recipefile)
         with open(recipefile, 'a') as f:
             f.write('\nFILES_${PN}-dev += "${datadir}/cmake/Modules"\n')
+            # We don't have the ability to pick up this dependency automatically yet...
+            f.write('\nDEPENDS += "libusb1"\n')
+            f.write('\nTESTLIBOUTPUT = "${STAGING_DIR}-components/${TUNE_PKGARCH}/${PN}/${libdir}"\n')
         # Test devtool build
         result = runCmd('devtool build libftdi')
-        staging_libdir = get_bb_var('STAGING_LIBDIR', 'libftdi')
-        self.assertTrue(staging_libdir, 'Could not query STAGING_LIBDIR variable')
+        staging_libdir = get_bb_var('TESTLIBOUTPUT', 'libftdi')
+        self.assertTrue(staging_libdir, 'Could not query TESTLIBOUTPUT variable')
         self.assertTrue(os.path.isfile(os.path.join(staging_libdir, 'libftdi1.so.2.1.0')), "libftdi binary not found in STAGING_LIBDIR. Output of devtool build libftdi %s" % result.output)
         # Test devtool reset
         stampprefix = get_bb_var('STAMP', 'libftdi')
@@ -340,12 +341,11 @@ class DevtoolTests(DevtoolBase):
 
     @testcase(1161)
     def test_devtool_add_fetch_git(self):
-        # Fetch source
         tempdir = tempfile.mkdtemp(prefix='devtoolqa')
         self.track_for_cleanup(tempdir)
-        url = 'git://git.yoctoproject.org/libmatchbox'
-        checkrev = '462f0652055d89c648ddd54fd7b03f175c2c6973'
-        testrecipe = 'libmatchbox2'
+        url = 'gitsm://git.yoctoproject.org/mraa'
+        checkrev = 'ae127b19a50aa54255e4330ccfdd9a5d058e581d'
+        testrecipe = 'mraa'
         srcdir = os.path.join(tempdir, testrecipe)
         # Test devtool add
         self.track_for_cleanup(self.workspacedir)
@@ -353,7 +353,7 @@ class DevtoolTests(DevtoolBase):
         self.add_command_to_tearDown('bitbake-layers remove-layer */workspace')
         result = runCmd('devtool add %s %s -a -f %s' % (testrecipe, srcdir, url))
         self.assertTrue(os.path.exists(os.path.join(self.workspacedir, 'conf', 'layer.conf')), 'Workspace directory not created: %s' % result.output)
-        self.assertTrue(os.path.isfile(os.path.join(srcdir, 'configure.ac')), 'Unable to find configure.ac in source directory')
+        self.assertTrue(os.path.isfile(os.path.join(srcdir, 'imraa', 'imraa.c')), 'Unable to find imraa/imraa.c in source directory')
         # Test devtool status
         result = runCmd('devtool status')
         self.assertIn(testrecipe, result.output)
@@ -363,7 +363,7 @@ class DevtoolTests(DevtoolBase):
         self.assertIn('_git.bb', recipefile, 'Recipe file incorrectly named')
         checkvars = {}
         checkvars['S'] = '${WORKDIR}/git'
-        checkvars['PV'] = '1.12+git${SRCPV}'
+        checkvars['PV'] = '1.0+git${SRCPV}'
         checkvars['SRC_URI'] = url
         checkvars['SRCREV'] = '${AUTOREV}'
         self._test_recipe_contents(recipefile, checkvars, [])
@@ -372,7 +372,7 @@ class DevtoolTests(DevtoolBase):
         shutil.rmtree(srcdir)
         url_rev = '%s;rev=%s' % (url, checkrev)
         result = runCmd('devtool add %s %s -f "%s" -V 1.5' % (testrecipe, srcdir, url_rev))
-        self.assertTrue(os.path.isfile(os.path.join(srcdir, 'configure.ac')), 'Unable to find configure.ac in source directory')
+        self.assertTrue(os.path.isfile(os.path.join(srcdir, 'imraa', 'imraa.c')), 'Unable to find imraa/imraa.c in source directory')
         # Test devtool status
         result = runCmd('devtool status')
         self.assertIn(testrecipe, result.output)
@@ -417,9 +417,8 @@ class DevtoolTests(DevtoolBase):
 
     @testcase(1164)
     def test_devtool_modify(self):
-        # Clean up anything in the workdir/sysroot/sstate cache
-        bitbake('mdadm -c cleansstate')
-        # Try modifying a recipe
+        import oe.path
+
         tempdir = tempfile.mkdtemp(prefix='devtoolqa')
         self.track_for_cleanup(tempdir)
         self.track_for_cleanup(self.workspacedir)
@@ -430,66 +429,94 @@ class DevtoolTests(DevtoolBase):
         self.assertTrue(os.path.exists(os.path.join(self.workspacedir, 'conf', 'layer.conf')), 'Workspace directory not created')
         matches = glob.glob(os.path.join(self.workspacedir, 'appends', 'mdadm_*.bbappend'))
         self.assertTrue(matches, 'bbappend not created %s' % result.output)
+
         # Test devtool status
         result = runCmd('devtool status')
         self.assertIn('mdadm', result.output)
         self.assertIn(tempdir, result.output)
-        # Check git repo
         self._check_src_repo(tempdir)
-        # Try building
-        def list_stamps(globsuffix='*'):
-            stampprefix = get_bb_var('STAMP', 'mdadm')
-            self.assertTrue(stampprefix, 'Unable to get STAMP value for recipe mdadm')
-            return glob.glob(stampprefix + globsuffix)
 
-        numstamps = len(list_stamps('.do_compile.*'))
-        self.assertEqual(numstamps, 0, 'do_compile stamps before first build')
-        for x in range(10):
-            bitbake('mdadm')
-            nowstamps = len(list_stamps('.do_compile.*'))
-            if nowstamps == numstamps:
-                break
-            numstamps = nowstamps
-        else:
-            self.fail('build did not stabilize in 10 iterations')
+        bitbake('mdadm -C unpack')
 
-        # Try making (minor) modifications to the source
-        modfile = os.path.join(tempdir, 'mdadm.8.in')
-        result = runCmd("sed -i 's!^\.TH.*!.TH MDADM 8 \"\" v9.999-custom!' %s" % modfile)
-
-        def check_TH_line(checkfile, expected, message):
+        def check_line(checkfile, expected, message, present=True):
+            # Check for $expected, on a line on its own, in checkfile.
             with open(checkfile, 'r') as f:
-                for line in f:
-                    if line.startswith('.TH'):
-                        self.assertEqual(line.rstrip(), expected, message)
+                if present:
+                    self.assertIn(expected + '\n', f, message)
+                else:
+                    self.assertNotIn(expected + '\n', f, message)
 
-        check_TH_line(modfile, '.TH MDADM 8 "" v9.999-custom', 'man .in file not modified (sed failed)')
-        bitbake('mdadm -c package')
+        modfile = os.path.join(tempdir, 'mdadm.8.in')
         pkgd = get_bb_var('PKGD', 'mdadm')
         self.assertTrue(pkgd, 'Could not query PKGD variable')
         mandir = get_bb_var('mandir', 'mdadm')
         self.assertTrue(mandir, 'Could not query mandir variable')
-        if mandir[0] == '/':
-            mandir = mandir[1:]
-        manfile = os.path.join(pkgd, mandir, 'man8', 'mdadm.8')
-        check_TH_line(manfile, '.TH MDADM 8 "" v9.999-custom', 'man file not modified. man searched file path: %s' % manfile)
-        # Test reverting the change
-        result = runCmd("git -C %s checkout -- %s" % (tempdir, modfile))
-        check_TH_line(modfile, '.TH MDADM 8 "" v3.4', 'man .in file not restored (git failed)')
+        manfile = oe.path.join(pkgd, mandir, 'man8', 'mdadm.8')
+
+        check_line(modfile, 'Linux Software RAID', 'Could not find initial string')
+        check_line(modfile, 'antique pin sardine', 'Unexpectedly found replacement string', present=False)
+
+        result = runCmd("sed -i 's!^Linux Software RAID$!antique pin sardine!' %s" % modfile)
+        check_line(modfile, 'antique pin sardine', 'mdadm.8.in file not modified (sed failed)')
+
         bitbake('mdadm -c package')
-        pkgd = get_bb_var('PKGD', 'mdadm')
-        self.assertTrue(pkgd, 'Could not query PKGD variable')
-        mandir = get_bb_var('mandir', 'mdadm')
-        self.assertTrue(mandir, 'Could not query mandir variable')
-        if mandir[0] == '/':
-            mandir = mandir[1:]
-        manfile = os.path.join(pkgd, mandir, 'man8', 'mdadm.8')
-        check_TH_line(manfile, '.TH MDADM 8 "" v3.4', 'man file not updated. man searched file path: %s' % manfile)
-        # Test devtool reset
+        check_line(manfile, 'antique pin sardine', 'man file not modified. man searched file path: %s' % manfile)
+
+        result = runCmd('git checkout -- %s' % modfile, cwd=tempdir)
+        check_line(modfile, 'Linux Software RAID', 'man .in file not restored (git failed)')
+
+        bitbake('mdadm -c package')
+        check_line(manfile, 'Linux Software RAID', 'man file not updated. man searched file path: %s' % manfile)
+
         result = runCmd('devtool reset mdadm')
         result = runCmd('devtool status')
         self.assertNotIn('mdadm', result.output)
-        self.assertFalse(list_stamps(), 'Stamp files exist for recipe mdadm that should have been cleaned')
+
+    def test_devtool_buildclean(self):
+        def assertFile(path, *paths):
+            f = os.path.join(path, *paths)
+            self.assertTrue(os.path.exists(f), "%r does not exist" % f)
+        def assertNoFile(path, *paths):
+            f = os.path.join(path, *paths)
+            self.assertFalse(os.path.exists(os.path.join(f)), "%r exists" % f)
+
+        # Clean up anything in the workdir/sysroot/sstate cache
+        bitbake('mdadm m4 -c cleansstate')
+        # Try modifying a recipe
+        tempdir_mdadm = tempfile.mkdtemp(prefix='devtoolqa')
+        tempdir_m4 = tempfile.mkdtemp(prefix='devtoolqa')
+        builddir_m4 = tempfile.mkdtemp(prefix='devtoolqa')
+        self.track_for_cleanup(tempdir_mdadm)
+        self.track_for_cleanup(tempdir_m4)
+        #self.track_for_cleanup(builddir_m4)
+        self.track_for_cleanup(self.workspacedir)
+        self.add_command_to_tearDown('bitbake-layers remove-layer */workspace')
+        self.add_command_to_tearDown('bitbake -c clean mdadm m4')
+        self.write_recipeinc('m4', 'EXTERNALSRC_BUILD = "%s"\ndo_clean() {\n\t:\n}\n' % builddir_m4)
+        try:
+            runCmd('devtool modify mdadm -x %s' % tempdir_mdadm)
+            runCmd('devtool modify m4 -x %s' % tempdir_m4)
+            assertNoFile(tempdir_mdadm, 'mdadm')
+            assertNoFile(builddir_m4, 'src/m4')
+            result = bitbake('m4 -e')
+            result = bitbake('mdadm m4 -c compile')
+            self.assertEqual(result.status, 0)
+            assertFile(tempdir_mdadm, 'mdadm')
+            assertFile(builddir_m4, 'src/m4')
+            # Check that buildclean task exists and does call make clean
+            bitbake('mdadm m4 -c buildclean')
+            assertNoFile(tempdir_mdadm, 'mdadm')
+            assertNoFile(builddir_m4, 'src/m4')
+            bitbake('mdadm m4 -c compile')
+            assertFile(tempdir_mdadm, 'mdadm')
+            assertFile(builddir_m4, 'src/m4')
+            bitbake('mdadm m4 -c clean')
+            # Check that buildclean task is run before clean for B == S
+            assertNoFile(tempdir_mdadm, 'mdadm')
+            # Check that buildclean task is not run before clean for B != S
+            assertFile(builddir_m4, 'src/m4')
+        finally:
+            self.delete_recipeinc('m4')
 
     @testcase(1166)
     def test_devtool_modify_invalid(self):
@@ -612,8 +639,8 @@ class DevtoolTests(DevtoolBase):
     @testcase(1378)
     def test_devtool_modify_virtual(self):
         # Try modifying a virtual recipe
-        virtrecipe = 'virtual/libx11'
-        realrecipe = 'libx11'
+        virtrecipe = 'virtual/make'
+        realrecipe = 'make'
         tempdir = tempfile.mkdtemp(prefix='devtoolqa')
         self.track_for_cleanup(tempdir)
         self.track_for_cleanup(self.workspacedir)
@@ -1047,7 +1074,7 @@ class DevtoolTests(DevtoolBase):
         tempdir = tempfile.mkdtemp(prefix='devtoolqa')
         # Try devtool extract
         self.track_for_cleanup(tempdir)
-        result = runCmd('devtool extract virtual/libx11 %s' % tempdir)
+        result = runCmd('devtool extract virtual/make %s' % tempdir)
         self.assertTrue(os.path.exists(os.path.join(tempdir, 'Makefile.am')), 'Extracted source could not be found')
         # devtool extract shouldn't create the workspace
         self.assertFalse(os.path.exists(self.workspacedir))

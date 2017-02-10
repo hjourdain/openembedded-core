@@ -10,28 +10,51 @@ from collections.abc import MutableMapping
 from xml.dom.minidom import parseString
 from xml.etree.ElementTree import Element, tostring
 
-from oe.lsb import distro_identifier
-from oeqa.utils.commands import runCmd, get_bb_var, get_bb_vars
+from oeqa.utils.commands import runCmd, get_bb_vars
 
-metadata_vars = ['MACHINE', 'DISTRO', 'DISTRO_VERSION']
+def get_os_release():
+    """Get info from /etc/os-release as a dict"""
+    data = OrderedDict()
+    os_release_file = '/etc/os-release'
+    if not os.path.exists(os_release_file):
+        return None
+    with open(os_release_file) as fobj:
+        for line in fobj:
+            key, value = line.split('=', 1)
+            data[key.strip().lower()] = value.strip().strip('"')
+    return data
 
 def metadata_from_bb():
     """ Returns test's metadata as OrderedDict.
 
         Data will be gathered using bitbake -e thanks to get_bb_vars.
     """
+    metadata_config_vars = ('MACHINE', 'BB_NUMBER_THREADS', 'PARALLEL_MAKE')
 
     info_dict = OrderedDict()
     hostname = runCmd('hostname')
     info_dict['hostname'] = hostname.output
-    data_dict = get_bb_vars(metadata_vars)
-    for var in metadata_vars:
-        info_dict[var.lower()] = data_dict[var]
-    host_distro= distro_identifier()
-    host_distro, _, host_distro_release = host_distro.partition('-')
-    info_dict['host_distro'] = host_distro
-    info_dict['host_distro_release'] = host_distro_release
-    info_dict['layers'] = get_layers(get_bb_var('BBLAYERS'))
+    data_dict = get_bb_vars()
+
+    # Distro information
+    info_dict['distro'] = {'id': data_dict['DISTRO'],
+                           'version_id': data_dict['DISTRO_VERSION'],
+                           'pretty_name': '%s %s' % (data_dict['DISTRO'], data_dict['DISTRO_VERSION'])}
+
+    # Host distro information
+    os_release = get_os_release()
+    if os_release:
+        info_dict['host_distro'] = OrderedDict()
+        for key in ('id', 'version_id', 'pretty_name'):
+            if key in os_release:
+                info_dict['host_distro'][key] = os_release[key]
+
+    info_dict['layers'] = get_layers(data_dict['BBLAYERS'])
+    info_dict['bitbake'] = git_rev_info(os.path.dirname(bb.__file__))
+
+    info_dict['config'] = OrderedDict()
+    for var in sorted(metadata_config_vars):
+        info_dict['config'][var] = data_dict[var]
     return info_dict
 
 def metadata_from_data_store(d):
@@ -43,22 +66,29 @@ def metadata_from_data_store(d):
     # be useful when running within bitbake.
     pass
 
-def get_layers(layers):
-    """ Returns layer name, branch, and revision as OrderedDict. """
+def git_rev_info(path):
+    """Get git revision information as a dict"""
     from git import Repo, InvalidGitRepositoryError, NoSuchPathError
 
+    info = OrderedDict()
+    try:
+        repo = Repo(path, search_parent_directories=True)
+    except (InvalidGitRepositoryError, NoSuchPathError):
+        return info
+    info['commit'] = repo.head.commit.hexsha
+    info['commit_count'] = repo.head.commit.count()
+    try:
+        info['branch'] = repo.active_branch.name
+    except TypeError:
+        info['branch'] = '(nobranch)'
+    return info
+
+def get_layers(layers):
+    """Returns layer information in dict format"""
     layer_dict = OrderedDict()
     for layer in layers.split():
         layer_name = os.path.basename(layer)
-        layer_dict[layer_name] = OrderedDict()
-        try:
-            repo = Repo(layer, search_parent_directories=True)
-            revision, branch = repo.head.object.name_rev.split()
-            layer_dict[layer_name]['branch'] = branch
-            layer_dict[layer_name]['revision'] = revision
-        except (InvalidGitRepositoryError, NoSuchPathError):
-            layer_dict[layer_name]['branch'] = 'unknown'
-            layer_dict[layer_name]['revision'] = 'unknown'
+        layer_dict[layer_name] = git_rev_info(layer)
     return layer_dict
 
 def write_metadata_file(file_path, metadata):
@@ -69,15 +99,20 @@ def write_metadata_file(file_path, metadata):
     with open(file_path, 'w') as f:
         f.write(xml_doc.toprettyxml())
 
-def dict_to_XML(tag, dictionary):
+def dict_to_XML(tag, dictionary, **kwargs):
     """ Return XML element converting dicts recursively. """
 
-    elem = Element(tag)
+    elem = Element(tag, **kwargs)
     for key, val in dictionary.items():
-        if isinstance(val, MutableMapping):
+        if tag == 'layers':
+            child = (dict_to_XML('layer', val, name=key))
+        elif isinstance(val, MutableMapping):
             child = (dict_to_XML(key, val))
         else:
-            child = Element(key)
+            if tag == 'config':
+                child = Element('variable', name=key)
+            else:
+                child = Element(key)
             child.text = str(val)
         elem.append(child)
     return elem

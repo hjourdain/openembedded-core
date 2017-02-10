@@ -15,7 +15,7 @@ class oeSDKExtSelfTest(oeSelfTest):
     """
     # Bugzilla Test Plan: 6033
     # This code is planned to be part of the automation for eSDK containig
-    # Install libraries and headers, image generation binary feeds.
+    # Install libraries and headers, image generation binary feeds, sdk-update.
     """
 
     @staticmethod
@@ -51,24 +51,47 @@ class oeSDKExtSelfTest(oeSelfTest):
         toolchain_name = get_bb_var('TOOLCHAINEXT_OUTPUTNAME', pn_task)
         return os.path.join(sdk_deploy, toolchain_name + '.sh')
     
+    @staticmethod
+    def update_configuration(cls, image, tmpdir_eSDKQA, env_eSDK, ext_sdk_path):
+        sstate_dir = os.path.join(os.environ['BUILDDIR'], 'sstate-cache')
+        cls.http_service = HTTPService(sstate_dir)
+        cls.http_service.start()
+        cls.http_url = "http://127.0.0.1:%d" % cls.http_service.port
+
+        oeSDKExtSelfTest.generate_eSDK(cls.image)
+
+        cls.ext_sdk_path = oeSDKExtSelfTest.get_eSDK_toolchain(cls.image)
+        runCmd("%s -y -d \"%s\"" % (cls.ext_sdk_path, cls.tmpdir_eSDKQA))
+
+        cls.env_eSDK = oeSDKExtSelfTest.get_esdk_environment('', cls.tmpdir_eSDKQA)
+       
+        sstate_config="""
+SDK_LOCAL_CONF_WHITELIST = "SSTATE_MIRRORS"
+SSTATE_MIRRORS =  "file://.* http://%s/PATH"
+CORE_IMAGE_EXTRA_INSTALL = "perl"
+        """ % cls.http_url
+
+        with open(os.path.join(cls.tmpdir_eSDKQA, 'conf', 'local.conf'), 'a+') as f:
+            f.write(sstate_config)
+    
 
     @classmethod
     def setUpClass(cls):
         # Start to serve sstate dir
-        sstate_dir = os.path.join(os.environ['BUILDDIR'], 'sstate-cache')
+        sstate_dir = get_bb_var('SSTATE_DIR')
         cls.http_service = HTTPService(sstate_dir)
         cls.http_service.start()
 
-        http_url = "127.0.0.1:%d" % cls.http_service.port
+        cls.http_url = "http://127.0.0.1:%d" % cls.http_service.port
  
-        image = 'core-image-minimal'
+        cls.image = 'core-image-minimal'
 
         cls.tmpdir_eSDKQA = tempfile.mkdtemp(prefix='eSDKQA')
-        oeSDKExtSelfTest.generate_eSDK(image)
+        oeSDKExtSelfTest.generate_eSDK(cls.image)
 
         # Install eSDK
-        ext_sdk_path = oeSDKExtSelfTest.get_eSDK_toolchain(image)
-        runCmd("%s -y -d \"%s\"" % (ext_sdk_path, cls.tmpdir_eSDKQA))
+        cls.ext_sdk_path = oeSDKExtSelfTest.get_eSDK_toolchain(cls.image)
+        runCmd("%s -y -d \"%s\"" % (cls.ext_sdk_path, cls.tmpdir_eSDKQA))
 
         cls.env_eSDK = oeSDKExtSelfTest.get_esdk_environment('', cls.tmpdir_eSDKQA)
 
@@ -76,7 +99,7 @@ class oeSDKExtSelfTest(oeSelfTest):
         sstate_config="""
 SDK_LOCAL_CONF_WHITELIST = "SSTATE_MIRRORS"
 SSTATE_MIRRORS =  "file://.* http://%s/PATH"
-        """ % http_url
+        """ % cls.http_url
         with open(os.path.join(cls.tmpdir_eSDKQA, 'conf', 'local.conf'), 'a+') as f:
             f.write(sstate_config)
 
@@ -86,18 +109,25 @@ SSTATE_MIRRORS =  "file://.* http://%s/PATH"
         shutil.rmtree(cls.tmpdir_eSDKQA)
         cls.http_service.stop()
 
-    @testcase (1471)
+    @testcase (1602)
     def test_install_libraries_headers(self):
         pn_sstate = 'bc'
         bitbake(pn_sstate)
         cmd = "devtool sdk-install %s " % pn_sstate
         oeSDKExtSelfTest.run_esdk_cmd(self.env_eSDK, self.tmpdir_eSDKQA, cmd)
     
-    @testcase(1472)
+    @testcase(1603)
     def test_image_generation_binary_feeds(self):
         image = 'core-image-minimal'
         cmd = "devtool build-image %s" % image
         oeSDKExtSelfTest.run_esdk_cmd(self.env_eSDK, self.tmpdir_eSDKQA, cmd)
+
+    @testcase(1567)
+    def test_sdk_update_http(self):
+        cmd = "devtool sdk-update %s" % self.http_url
+        oeSDKExtSelfTest.update_configuration(self, self.image, self.tmpdir_eSDKQA, self.env_eSDK, self.ext_sdk_path)
+        oeSDKExtSelfTest.run_esdk_cmd(self.env_eSDK, self.tmpdir_eSDKQA, cmd)
+        self.http_service.stop()
 
 if __name__ == '__main__':
     unittest.main()

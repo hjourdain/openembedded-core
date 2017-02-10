@@ -27,7 +27,6 @@ try:
 except ImportError:
     pass
 from oeqa.utils.decorators import LogResults, gettag, getResults
-from oeqa.utils import avoid_paths_in_environ
 
 logger = logging.getLogger("BitBake")
 
@@ -145,32 +144,6 @@ class OETestCalledProcessError(subprocess.CalledProcessError):
 
 subprocess.CalledProcessError = OETestCalledProcessError
 
-class oeSDKTest(oeTest):
-    def __init__(self, methodName='runTest'):
-        self.sdktestdir = oeSDKTest.tc.sdktestdir
-        super(oeSDKTest, self).__init__(methodName)
-
-    @classmethod
-    def hasHostPackage(self, pkg):
-        if re.search(pkg, oeTest.tc.hostpkgmanifest):
-            return True
-        return False
-
-    def _run(self, cmd):
-        return subprocess.check_output(". %s > /dev/null; %s;" % (self.tc.sdkenv, cmd), shell=True, stderr=subprocess.STDOUT).decode("utf-8")
-
-class oeSDKExtTest(oeSDKTest):
-    def _run(self, cmd):
-        # extensible sdk shows a warning if found bitbake in the path
-        # because can cause contamination, i.e. use devtool from
-        # poky/scripts instead of eSDK one.
-        env = os.environ.copy()
-        paths_to_avoid = ['bitbake/bin', 'poky/scripts']
-        env['PATH'] = avoid_paths_in_environ(paths_to_avoid)
-
-        return subprocess.check_output(". %s > /dev/null;"\
-            " %s;" % (self.tc.sdkenv, cmd), stderr=subprocess.STDOUT, shell=True, env=env).decode("utf-8")
-
 def getmodule(pos=2):
     # stack returns a list of tuples containg frame information
     # First element of the list the is current frame, caller is 1
@@ -228,6 +201,7 @@ class TestContext(object):
         self.testsrequired = self._get_test_suites_required()
 
         self.filesdir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "runtime/files")
+        self.corefilesdir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "files")
         self.imagefeatures = d.getVar("IMAGE_FEATURES").split()
         self.distrofeatures = d.getVar("DISTRO_FEATURES").split()
 
@@ -656,67 +630,3 @@ class ExportTestContext(RuntimeTestContext):
         extracted_dir = self.d.getVar("TEST_EXPORT_EXTRACTED_DIR")
         pkg_dir = os.path.join(export_dir, extracted_dir)
         super(ExportTestContext, self).install_uninstall_packages(test_id, pkg_dir, install)
-
-class SDKTestContext(TestContext):
-    def __init__(self, d, sdktestdir, sdkenv, tcname, *args):
-        super(SDKTestContext, self).__init__(d)
-
-        self.sdktestdir = sdktestdir
-        self.sdkenv = sdkenv
-        self.tcname = tcname
-
-        if not hasattr(self, 'target_manifest'):
-            self.target_manifest = d.getVar("SDK_TARGET_MANIFEST")
-        try:
-            self.pkgmanifest = {}
-            with open(self.target_manifest) as f:
-                for line in f:
-                    (pkg, arch, version) = line.strip().split()
-                    self.pkgmanifest[pkg] = (version, arch)
-        except IOError as e:
-            bb.fatal("No package manifest file found. Did you build the sdk image?\n%s" % e)
-
-        if not hasattr(self, 'host_manifest'):
-            self.host_manifest = d.getVar("SDK_HOST_MANIFEST")
-        try:
-            with open(self.host_manifest) as f:
-                self.hostpkgmanifest = f.read()
-        except IOError as e:
-            bb.fatal("No host package manifest file found. Did you build the sdk image?\n%s" % e)
-
-    def _get_test_namespace(self):
-        return "sdk"
-
-    def _get_test_suites(self):
-        return (self.d.getVar("TEST_SUITES_SDK") or "auto").split()
-
-    def _get_test_suites_required(self):
-        return [t for t in (self.d.getVar("TEST_SUITES_SDK") or \
-                "auto").split() if t != "auto"]
-
-class SDKExtTestContext(SDKTestContext):
-    def __init__(self, d, sdktestdir, sdkenv, tcname, *args):
-        self.target_manifest = d.getVar("SDK_EXT_TARGET_MANIFEST")
-        self.host_manifest = d.getVar("SDK_EXT_HOST_MANIFEST")
-        if args:
-            self.cm = args[0] # Compatibility mode for run SDK tests
-        else:
-            self.cm = False
-
-        super(SDKExtTestContext, self).__init__(d, sdktestdir, sdkenv, tcname)
-
-        self.sdkextfilesdir = os.path.join(os.path.dirname(os.path.abspath(
-            oeqa.sdkext.__file__)), "files")
-
-    def _get_test_namespace(self):
-        if self.cm:
-            return "sdk"
-        else:
-            return "sdkext"
-
-    def _get_test_suites(self):
-        return (self.d.getVar("TEST_SUITES_SDK_EXT") or "auto").split()
-
-    def _get_test_suites_required(self):
-        return [t for t in (self.d.getVar("TEST_SUITES_SDK_EXT") or \
-                "auto").split() if t != "auto"]

@@ -12,8 +12,6 @@ PACKAGES = ""
 
 EXTRA_OECONF += "--disable-shared"
 
-LIBGCCBUILDTREENAME = "gcc-build-internal-initial-"
-
-do_populate_sysroot[sstate-outputdirs] = "${STAGING_DIR_TCBOOTSTRAP}/"
+COMPILERINITIAL = "-initial"
 
 inherit nopackages

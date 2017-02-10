@@ -29,7 +29,7 @@ import os
 
 from wic import msger
 from wic.pluginbase import SourcePlugin
-from wic.utils.oe.misc import get_bitbake_var
+from wic.utils.misc import get_bitbake_var
 
 class RootfsPlugin(SourcePlugin):
     """
@@ -79,5 +79,5 @@ class RootfsPlugin(SourcePlugin):
         real_rootfs_dir = cls.__get_rootfs_dir(rootfs_dir)
 
         part.rootfs_dir = real_rootfs_dir
-        part.prepare_rootfs(cr_workdir, oe_builddir, real_rootfs_dir, native_sysroot)
-
+        part.prepare_rootfs(cr_workdir, oe_builddir,
+                            real_rootfs_dir, native_sysroot)

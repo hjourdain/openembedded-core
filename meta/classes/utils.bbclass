@@ -264,10 +264,17 @@ create_cmdline_wrapper () {
 
 	mv $cmd $cmd.real
 	cmdname=`basename $cmd`
+	dirname=`dirname $cmd`
+	cmdoptions=$@
+	if [ "${base_prefix}" != "" ]; then
+		relpath=`python3 -c "import os; print(os.path.relpath('${D}${base_prefix}', '$dirname'))"`
+		cmdoptions=`echo $@ | sed -e "s:${base_prefix}:\\$realdir/$relpath:g"`
+	fi
 	cat <<END >$cmd
 #!/bin/bash
 realpath=\`readlink -fn \$0\`
-exec -a \`dirname \$realpath\`/$cmdname \`dirname \$realpath\`/$cmdname.real $@ "\$@"
+realdir=\`dirname \$realpath\`
+exec -a \`dirname \$realpath\`/$cmdname \`dirname \$realpath\`/$cmdname.real $cmdoptions "\$@"
 END
 	chmod +x $cmd
 }
@@ -287,10 +294,17 @@ create_wrapper () {
 
 	mv $cmd $cmd.real
 	cmdname=`basename $cmd`
+	dirname=`dirname $cmd`
+	exportstring=$@
+	if [ "${base_prefix}" != "" ]; then
+		relpath=`python3 -c "import os; print(os.path.relpath('${D}${base_prefix}', '$dirname'))"`
+		exportstring=`echo $@ | sed -e "s:${base_prefix}:\\$realdir/$relpath:g"`
+	fi
 	cat <<END >$cmd
 #!/bin/bash
 realpath=\`readlink -fn \$0\`
-export $@
+realdir=\`dirname \$realpath\`
+export $exportstring
 exec -a \`dirname \$realpath\`/$cmdname \`dirname \$realpath\`/$cmdname.real "\$@"
 END
 	chmod +x $cmd
@@ -349,6 +363,14 @@ def multilib_pkg_extend(d, pkg):
         pkgs = pkgs + " " + v + "-" + pkg
     return pkgs
 
+def get_multilib_datastore(variant, d):
+    localdata = bb.data.createCopy(d)
+    overrides = localdata.getVar("OVERRIDES", False) + ":virtclass-multilib-" + variant
+    localdata.setVar("OVERRIDES", overrides)
+    localdata.setVar("MLPREFIX", variant + "-")
+    bb.data.update_data(localdata)
+    return localdata
+
 def all_multilib_tune_values(d, var, unique = True, need_split = True, delim = ' '):
     """Return a string of all ${var} in all multilib tune configuration"""
     values = []
@@ -361,11 +383,7 @@ def all_multilib_tune_values(d, var, unique = True, need_split = True, delim = '
             values.append(value)
     variants = d.getVar("MULTILIB_VARIANTS") or ""
     for item in variants.split():
-        localdata = bb.data.createCopy(d)
-        overrides = localdata.getVar("OVERRIDES", False) + ":virtclass-multilib-" + item
-        localdata.setVar("OVERRIDES", overrides)
-        localdata.setVar("MLPREFIX", item + "-")
-        bb.data.update_data(localdata)
+        localdata = get_multilib_datastore(item, d)
         value = localdata.getVar(var) or ""
         if value != "":
             if need_split:
@@ -411,11 +429,7 @@ def all_multilib_tune_list(vars, d):
         values[v].append(localdata.getVar(v))
     variants = d.getVar("MULTILIB_VARIANTS") or ""
     for item in variants.split():
-        localdata = bb.data.createCopy(d)
-        overrides = localdata.getVar("OVERRIDES", False) + ":virtclass-multilib-" + item
-        localdata.setVar("OVERRIDES", overrides)
-        localdata.setVar("MLPREFIX", item + "-")
-        bb.data.update_data(localdata)
+        localdata = get_multilib_datastore(item, d)
         values[v].append(localdata.getVar(v))
         values['ml'].append(item)
     return values

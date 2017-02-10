@@ -26,9 +26,9 @@ import shutil
 import glob
 
 from wic import msger
+from wic.engine import get_custom_config
 from wic.pluginbase import SourcePlugin
-from wic.utils.misc import get_custom_config
-from wic.utils.oe.misc import exec_cmd, exec_native_cmd, get_bitbake_var
+from wic.utils.misc import exec_cmd, exec_native_cmd, get_bitbake_var
 
 class IsoImagePlugin(SourcePlugin):
     """
@@ -100,10 +100,10 @@ class IsoImagePlugin(SourcePlugin):
             grubefi_conf = get_custom_config(configfile)
             if grubefi_conf:
                 msger.debug("Using custom configuration file "
-                        "%s for grub.cfg" % configfile)
+                            "%s for grub.cfg" % configfile)
             else:
                 msger.error("configfile is specified but failed to "
-                        "get it from %s." % configfile)
+                            "get it from %s." % configfile)
         else:
             splash = os.path.join(cr_workdir, "EFI/boot/splash.jpg")
             if os.path.exists(splash):
@@ -144,7 +144,7 @@ class IsoImagePlugin(SourcePlugin):
         Create path for initramfs image
         """
 
-        initrd = get_bitbake_var("INITRD")
+        initrd = get_bitbake_var("INITRD_LIVE") or get_bitbake_var("INITRD")
         if not initrd:
             initrd_dir = get_bitbake_var("DEPLOY_DIR_IMAGE")
             if not initrd_dir:
@@ -158,11 +158,11 @@ class IsoImagePlugin(SourcePlugin):
             if not image_type:
                 msger.error("Couldn't find INITRAMFS_FSTYPES, exiting.\n")
 
-            machine_arch = get_bitbake_var("MACHINE_ARCH")
-            if not machine_arch:
-                msger.error("Couldn't find MACHINE_ARCH, exiting.\n")
+            target_arch = get_bitbake_var("TRANSLATED_TARGET_ARCH")
+            if not target_arch:
+                msger.error("Couldn't find TRANSLATED_TARGET_ARCH, exiting.\n")
 
-            initrd = glob.glob('%s/%s*%s.%s' % (initrd_dir, image_name, machine_arch, image_type))[0]
+            initrd = glob.glob('%s/%s*%s.%s' % (initrd_dir, image_name, target_arch, image_type))[0]
 
         if not os.path.exists(initrd):
             # Create initrd from rootfs directory
@@ -192,55 +192,6 @@ class IsoImagePlugin(SourcePlugin):
             shutil.rmtree(initrd_dir)
 
         return initrd
-
-    @classmethod
-    def do_stage_partition(cls, part, source_params, creator, cr_workdir,
-                           oe_builddir, bootimg_dir, kernel_dir,
-                           native_sysroot):
-        """
-        Special content staging called before do_prepare_partition().
-        It cheks if all necessary tools are available, if not
-        tries to instal them.
-        """
-        # Make sure parted is available in native sysroot
-        if not os.path.isfile("%s/usr/sbin/parted" % native_sysroot):
-            msger.info("Building parted-native...\n")
-            exec_cmd("bitbake parted-native")
-
-        # Make sure mkfs.ext2/3/4 is available in native sysroot
-        if not os.path.isfile("%s/sbin/mkfs.ext2" % native_sysroot):
-            msger.info("Building e2fsprogs-native...\n")
-            exec_cmd("bitbake e2fsprogs-native")
-
-        # Make sure syslinux is available in sysroot and in native sysroot
-        syslinux_dir = get_bitbake_var("STAGING_DATADIR")
-        if not syslinux_dir:
-            msger.error("Couldn't find STAGING_DATADIR, exiting.\n")
-        if not os.path.exists("%s/syslinux" % syslinux_dir):
-            msger.info("Building syslinux...\n")
-            exec_cmd("bitbake syslinux")
-        if not os.path.exists("%s/syslinux" % syslinux_dir):
-            msger.error("Please build syslinux first\n")
-
-        # Make sure syslinux is available in native sysroot
-        if not os.path.exists("%s/usr/bin/syslinux" % native_sysroot):
-            msger.info("Building syslinux-native...\n")
-            exec_cmd("bitbake syslinux-native")
-
-        #Make sure mkisofs is available in native sysroot
-        if not os.path.isfile("%s/usr/bin/mkisofs" % native_sysroot):
-            msger.info("Building cdrtools-native...\n")
-            exec_cmd("bitbake cdrtools-native")
-
-        # Make sure mkfs.vfat is available in native sysroot
-        if not os.path.isfile("%s/sbin/mkfs.vfat" % native_sysroot):
-            msger.info("Building dosfstools-native...\n")
-            exec_cmd("bitbake dosfstools-native")
-
-        # Make sure mtools is available in native sysroot
-        if not os.path.isfile("%s/usr/bin/mcopy" % native_sysroot):
-            msger.info("Building mtools-native...\n")
-            exec_cmd("bitbake mtools-native")
 
     @classmethod
     def do_configure_partition(cls, part, source_params, creator, cr_workdir,
@@ -298,12 +249,9 @@ class IsoImagePlugin(SourcePlugin):
         part.rootfs_dir = rootfs_dir
 
         # Prepare rootfs.img
-        hdd_dir = get_bitbake_var("HDDDIR")
+        deploy_dir = get_bitbake_var("DEPLOY_DIR_IMAGE")
         img_iso_dir = get_bitbake_var("ISODIR")
-
-        rootfs_img = "%s/rootfs.img" % hdd_dir
-        if not os.path.isfile(rootfs_img):
-            rootfs_img = "%s/rootfs.img" % img_iso_dir
+        rootfs_img = "%s/rootfs.img" % img_iso_dir
         if not os.path.isfile(rootfs_img):
             # check if rootfs.img is in deploydir
             deploy_dir = get_bitbake_var("DEPLOY_DIR_IMAGE")
@@ -331,15 +279,22 @@ class IsoImagePlugin(SourcePlugin):
         if os.path.isfile(part.source_file):
             os.remove(part.source_file)
 
-        # Prepare initial ramdisk
-        initrd = "%s/initrd" % hdd_dir
-        if not os.path.isfile(initrd):
-            initrd = "%s/initrd" % img_iso_dir
-        if not os.path.isfile(initrd):
-            initrd = cls._build_initramfs_path(rootfs_dir, cr_workdir)
+        # Support using a different initrd other than default
+        if source_params.get('initrd'):
+            initrd = source_params['initrd']
+            if not deploy_dir:
+                msger.error("Couldn't find DEPLOY_DIR_IMAGE, exiting\n")
+            cp_cmd = "cp %s/%s %s" % (deploy_dir, initrd, cr_workdir)
+            exec_cmd(cp_cmd)
+        else:
+            # Prepare initial ramdisk
+            initrd = "%s/initrd" % deploy_dir
+            if not os.path.isfile(initrd):
+                initrd = "%s/initrd" % img_iso_dir
+            if not os.path.isfile(initrd):
+                initrd = cls._build_initramfs_path(rootfs_dir, cr_workdir)
 
-        install_cmd = "install -m 0644 %s %s/initrd" \
-            % (initrd, isodir)
+        install_cmd = "install -m 0644 %s %s/initrd" % (initrd, isodir)
         exec_cmd(install_cmd)
 
         # Remove the temporary file created by _build_initramfs_path function
@@ -348,7 +303,7 @@ class IsoImagePlugin(SourcePlugin):
 
         # Install bzImage
         install_cmd = "install -m 0644 %s/bzImage %s/bzImage" % \
-            (kernel_dir, isodir)
+                      (kernel_dir, isodir)
         exec_cmd(install_cmd)
 
         #Create bootloader for efi boot
@@ -385,14 +340,11 @@ class IsoImagePlugin(SourcePlugin):
 
                 if not os.path.isfile("%s/EFI/BOOT/%s" \
                                 % (bootimg_dir, grub_image)):
-                    grub_path = get_bitbake_var("STAGING_LIBDIR")
+                    grub_path = get_bitbake_var("STAGING_LIBDIR", "wic-tools")
                     if not grub_path:
                         msger.error("Couldn't find STAGING_LIBDIR, exiting.\n")
 
                     grub_core = "%s/grub/%s" % (grub_path, grub_target)
-                    if not os.path.exists(grub_core):
-                        msger.info("Building grub-efi...\n")
-                        exec_cmd("bitbake grub-efi")
                     if not os.path.exists(grub_core):
                         msger.error("Please build grub-efi first\n")
 
@@ -410,7 +362,6 @@ class IsoImagePlugin(SourcePlugin):
                     exec_native_cmd(grub_cmd, native_sysroot)
 
             else:
-                # TODO: insert gummiboot stuff
                 msger.error("unrecognized bootimg-efi loader: %s" \
                             % source_params['loader'])
         except KeyError:
@@ -459,7 +410,7 @@ class IsoImagePlugin(SourcePlugin):
             exec_cmd(chmod_cmd)
 
         # Prepare files for legacy boot
-        syslinux_dir = get_bitbake_var("STAGING_DATADIR")
+        syslinux_dir = get_bitbake_var("STAGING_DATADIR", "wic-tools")
         if not syslinux_dir:
             msger.error("Couldn't find STAGING_DATADIR, exiting.\n")
 

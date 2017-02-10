@@ -30,7 +30,7 @@ export EX_LIBS = "-lgcc -ldl"
 export AS = "${CC} -c"
 EXTRA_OEMAKE = "-e MAKEFLAGS="
 
-inherit pkgconfig siteinfo multilib_header ptest
+inherit pkgconfig siteinfo multilib_header ptest relative_symlinks
 
 PACKAGES =+ "libcrypto libssl ${PN}-misc openssl-conf"
 FILES_libcrypto = "${libdir}/libcrypto${SOLIBS}"
@@ -84,7 +84,7 @@ do_configure () {
 		target=linux-elf-armeb
 		;;
 	linux-aarch64*)
-		target=linux-generic64
+		target=linux-aarch64
 		;;
 	linux-sh3)
 		target=debian-sh3

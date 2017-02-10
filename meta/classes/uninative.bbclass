@@ -60,7 +60,7 @@ python uninative_event_fetchloader() {
                     os.symlink(localpath, tarballpath)
 
         cmd = d.expand("mkdir -p ${UNINATIVE_STAGING_DIR}-uninative; cd ${UNINATIVE_STAGING_DIR}-uninative; tar -xjf ${UNINATIVE_DLDIR}/%s/${UNINATIVE_TARBALL}; ${UNINATIVE_STAGING_DIR}-uninative/relocate_sdk.py ${UNINATIVE_STAGING_DIR}-uninative/${BUILD_ARCH}-linux ${UNINATIVE_LOADER} ${UNINATIVE_LOADER} ${UNINATIVE_STAGING_DIR}-uninative/${BUILD_ARCH}-linux/${bindir_native}/patchelf-uninative ${UNINATIVE_STAGING_DIR}-uninative/${BUILD_ARCH}-linux${base_libdir_native}/libc*.so" % chksum)
-        subprocess.check_call(cmd, shell=True)
+        subprocess.check_output(cmd, shell=True)
 
         with open(loaderchksum, "w") as f:
             f.write(chksum)
@@ -91,7 +91,8 @@ def enable_uninative(d):
         bb.debug(2, "Enabling uninative")
         d.setVar("NATIVELSBSTRING", "universal%s" % oe.utils.host_gcc_version(d))
         d.appendVar("SSTATEPOSTUNPACKFUNCS", " uninative_changeinterp")
-        d.prependVar("PATH", "${UNINATIVE_STAGING_DIR}-uninative/${BUILD_ARCH}-linux${bindir_native}:")
+        d.setVarFlag("SSTATEPOSTUNPACKFUNCS", "vardepvalueexclude", " uninative_changeinterp")
+        d.prependVar("PATH", "${STAGING_DIR}-uninative/${BUILD_ARCH}-linux${bindir_native}:")
 
 python uninative_changeinterp () {
     import subprocess
@@ -120,11 +121,8 @@ python uninative_changeinterp () {
             if not elf.isDynamic():
                 continue
 
-            try:
-                subprocess.check_output(("patchelf-uninative", "--set-interpreter",
-                                         d.getVar("UNINATIVE_LOADER"), f),
-                                        stderr=subprocess.STDOUT)
-            except subprocess.CalledProcessError as e:
-                bb.fatal("'%s' failed with exit code %d and the following output:\n%s" %
-                         (e.cmd, e.returncode, e.output))
+            subprocess.check_output(("patchelf-uninative", "--set-interpreter", d.getVar("UNINATIVE_LOADER"), f), stderr=subprocess.STDOUT)
+            subprocess.check_output(("cp", "--sparse=always", f, f + ".sparse"), stderr=subprocess.STDOUT)
+            os.unlink(f)
+            os.rename(f + ".sparse", f)
 }

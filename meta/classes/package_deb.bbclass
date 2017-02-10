@@ -17,6 +17,8 @@ APT_ARGS = "${@['', '--no-install-recommends'][d.getVar("NO_RECOMMENDATIONS") ==
 
 def debian_arch_map(arch, tune):
     tune_features = tune.split()
+    if arch == "allarch":
+        return "all"
     if arch in ["i586", "i686"]:
         return "i386"
     if arch == "x86_64":
@@ -53,6 +55,7 @@ python do_package_deb () {
     import textwrap
     import subprocess
     import collections
+    import codecs
 
     oldcwd = os.getcwd()
 
@@ -121,12 +124,8 @@ python do_package_deb () {
         controldir = os.path.join(root, 'DEBIAN')
         bb.utils.mkdirhier(controldir)
         os.chmod(controldir, 0o755)
-        try:
-            import codecs
-            ctrlfile = codecs.open(os.path.join(controldir, 'control'), 'w', 'utf-8')
-        except OSError:
-            bb.utils.unlockfile(lf)
-            bb.fatal("unable to open control file for writing")
+
+        ctrlfile = codecs.open(os.path.join(controldir, 'control'), 'w', 'utf-8')
 
         fields = []
         pe = d.getVar('PKGE')
@@ -153,7 +152,7 @@ python do_package_deb () {
             for i in l:
                 data = d.getVar(i)
                 if data is None:
-                    raise KeyError(f)
+                    raise KeyError(i)
                 if i == 'DPKG_ARCH' and d.getVar('PACKAGE_ARCH') == 'all':
                     data = 'all'
                 elif i == 'PACKAGE_ARCH' or i == 'DPKG_ARCH':
@@ -168,36 +167,26 @@ python do_package_deb () {
         if d.getVar('PACKAGE_ARCH') == "all":
             ctrlfile.write("Multi-Arch: foreign\n")
         # check for required fields
-        try:
-            for (c, fs) in fields:
-                for f in fs:
-                     if localdata.getVar(f, False) is None:
-                         raise KeyError(f)
-                # Special behavior for description...
-                if 'DESCRIPTION' in fs:
-                     summary = localdata.getVar('SUMMARY') or localdata.getVar('DESCRIPTION') or "."
-                     ctrlfile.write('Description: %s\n' % summary)
-                     description = localdata.getVar('DESCRIPTION') or "."
-                     description = textwrap.dedent(description).strip()
-                     if '\\n' in description:
-                         # Manually indent
-                         for t in description.split('\\n'):
-                             # We don't limit the width when manually indent, but we do
-                             # need the textwrap.fill() to set the initial_indent and
-                             # subsequent_indent, so set a large width
-                             ctrlfile.write('%s\n' % textwrap.fill(t, width=100000, initial_indent=' ', subsequent_indent=' '))
-                     else:
-                         # Auto indent
-                         ctrlfile.write('%s\n' % textwrap.fill(description.strip(), width=74, initial_indent=' ', subsequent_indent=' '))
+        for (c, fs) in fields:
+            # Special behavior for description...
+            if 'DESCRIPTION' in fs:
+                 summary = localdata.getVar('SUMMARY') or localdata.getVar('DESCRIPTION') or "."
+                 ctrlfile.write('Description: %s\n' % summary)
+                 description = localdata.getVar('DESCRIPTION') or "."
+                 description = textwrap.dedent(description).strip()
+                 if '\\n' in description:
+                     # Manually indent
+                     for t in description.split('\\n'):
+                         # We don't limit the width when manually indent, but we do
+                         # need the textwrap.fill() to set the initial_indent and
+                         # subsequent_indent, so set a large width
+                         ctrlfile.write('%s\n' % textwrap.fill(t, width=100000, initial_indent=' ', subsequent_indent=' '))
+                 else:
+                     # Auto indent
+                     ctrlfile.write('%s\n' % textwrap.fill(description.strip(), width=74, initial_indent=' ', subsequent_indent=' '))
 
-                else:
-                     ctrlfile.write(c % tuple(pullData(fs, localdata)))
-        except KeyError:
-            import sys
-            (type, value, traceback) = sys.exc_info()
-            bb.utils.unlockfile(lf)
-            ctrlfile.close()
-            bb.fatal("Missing field for deb generation: %s" % value)
+            else:
+                 ctrlfile.write(c % tuple(pullData(fs, localdata)))
 
         # more fields
 
@@ -273,11 +262,7 @@ python do_package_deb () {
             if not scriptvar:
                 continue
             scriptvar = scriptvar.strip()
-            try:
-                scriptfile = open(os.path.join(controldir, script), 'w')
-            except OSError:
-                bb.utils.unlockfile(lf)
-                bb.fatal("unable to open %s script file for writing" % script)
+            scriptfile = open(os.path.join(controldir, script), 'w')
 
             if scriptvar.startswith("#!"):
                 pos = scriptvar.find("\n") + 1
@@ -297,21 +282,14 @@ python do_package_deb () {
 
         conffiles_str = ' '.join(get_conffiles(pkg, d))
         if conffiles_str:
-            try:
-                conffiles = open(os.path.join(controldir, 'conffiles'), 'w')
-            except OSError:
-                bb.utils.unlockfile(lf)
-                bb.fatal("unable to open conffiles for writing")
+            conffiles = open(os.path.join(controldir, 'conffiles'), 'w')
             for f in conffiles_str.split():
                 if os.path.exists(oe.path.join(root, f)):
                     conffiles.write('%s\n' % f)
             conffiles.close()
 
         os.chdir(basedir)
-        ret = subprocess.call("PATH=\"%s\" dpkg-deb -b %s %s" % (localdata.getVar("PATH"), root, pkgoutdir), shell=True)
-        if ret != 0:
-            bb.utils.unlockfile(lf)
-            bb.fatal("dpkg-deb execution failed")
+        subprocess.check_output("PATH=\"%s\" dpkg-deb -b %s %s" % (localdata.getVar("PATH"), root, pkgoutdir), shell=True)
 
         cleanupcontrol(root)
         bb.utils.unlockfile(lf)
@@ -351,6 +329,7 @@ python do_package_write_deb () {
 do_package_write_deb[dirs] = "${PKGWRITEDIRDEB}"
 do_package_write_deb[cleandirs] = "${PKGWRITEDIRDEB}"
 do_package_write_deb[umask] = "022"
+do_package_write_deb[depends] += "${@oe.utils.build_depends_string(d.getVar('PACKAGE_WRITE_DEPS'), 'do_populate_sysroot')}"
 addtask package_write_deb after do_packagedata do_package
 
 

@@ -26,13 +26,13 @@
 
 import os
 
-from wic.utils.errors import ImageError
 from wic import msger
+from wic.engine import get_custom_config
 from wic.utils import runner
-from wic.utils.misc import get_custom_config
+from wic.utils.errors import ImageError
 from wic.pluginbase import SourcePlugin
-from wic.utils.oe.misc import exec_cmd, exec_native_cmd, \
-                              get_bitbake_var, BOOTDD_EXTRA_SPACE
+from wic.utils.misc import (exec_cmd, exec_native_cmd,
+                            get_bitbake_var, BOOTDD_EXTRA_SPACE)
 
 class BootimgPcbiosPlugin(SourcePlugin):
     """
@@ -145,7 +145,7 @@ class BootimgPcbiosPlugin(SourcePlugin):
             return False
 
         if not _has_syslinux(bootimg_dir):
-            bootimg_dir = get_bitbake_var("STAGING_DATADIR")
+            bootimg_dir = get_bitbake_var("STAGING_DATADIR", "wic-tools")
             if not bootimg_dir:
                 msger.error("Couldn't find STAGING_DATADIR, exiting\n")
             if not _has_syslinux(bootimg_dir):
@@ -198,7 +198,5 @@ class BootimgPcbiosPlugin(SourcePlugin):
         out = exec_cmd(du_cmd)
         bootimg_size = out.split()[0]
 
-        part.size = int(out.split()[0])
+        part.size = int(bootimg_size)
         part.source_file = bootimg
-
-

@@ -27,15 +27,9 @@
 import os
 import tempfile
 
-from wic.utils.oe.misc import msger, parse_sourceparams
-from wic.utils.oe.misc import exec_cmd, exec_native_cmd, get_bitbake_var
+from wic import msger
+from wic.utils.misc import exec_cmd, exec_native_cmd, get_bitbake_var
 from wic.plugin import pluginmgr
-
-partition_methods = {
-    "do_stage_partition":None,
-    "do_prepare_partition":None,
-    "do_configure_partition":None,
-}
 
 class Partition():
 
@@ -129,9 +123,6 @@ class Partition():
         Prepare content for individual partitions, depending on
         partition command parameters.
         """
-        if self.sourceparams:
-            self.sourceparams_dict = parse_sourceparams(self.sourceparams)
-
         if not self.source:
             if not self.size and not self.fixed_size:
                 msger.error("The %s partition has a size of zero. Please "
@@ -164,28 +155,34 @@ class Partition():
                         "details on adding a new source plugin." % \
                         (self.source, self.mountpoint))
 
-        self._source_methods = pluginmgr.get_source_plugin_methods(\
-                                   self.source, partition_methods)
-        self._source_methods["do_configure_partition"](self, self.sourceparams_dict,
-                                                       creator, cr_workdir,
-                                                       oe_builddir,
-                                                       bootimg_dir,
-                                                       kernel_dir,
-                                                       native_sysroot)
-        self._source_methods["do_stage_partition"](self, self.sourceparams_dict,
-                                                   creator, cr_workdir,
-                                                   oe_builddir,
-                                                   bootimg_dir, kernel_dir,
-                                                   native_sysroot)
-        self._source_methods["do_prepare_partition"](self, self.sourceparams_dict,
-                                                     creator, cr_workdir,
-                                                     oe_builddir,
-                                                     bootimg_dir, kernel_dir, rootfs_dir,
-                                                     native_sysroot)
+        srcparams_dict = {}
+        if self.sourceparams:
+            # Split sourceparams string of the form key1=val1[,key2=val2,...]
+            # into a dict.  Also accepts valueless keys i.e. without =
+            splitted = self.sourceparams.split(',')
+            srcparams_dict = dict(par.split('=') for par in splitted if par)
+
+        partition_methods = {
+            "do_stage_partition": None,
+            "do_prepare_partition": None,
+            "do_configure_partition": None
+        }
+
+        methods = pluginmgr.get_source_plugin_methods(self.source,
+                                                      partition_methods)
+        methods["do_configure_partition"](self, srcparams_dict, creator,
+                                          cr_workdir, oe_builddir, bootimg_dir,
+                                          kernel_dir, native_sysroot)
+        methods["do_stage_partition"](self, srcparams_dict, creator,
+                                      cr_workdir, oe_builddir, bootimg_dir,
+                                      kernel_dir, native_sysroot)
+        methods["do_prepare_partition"](self, srcparams_dict, creator,
+                                        cr_workdir, oe_builddir, bootimg_dir,
+                                        kernel_dir, rootfs_dir, native_sysroot)
 
         # further processing required Partition.size to be an integer, make
         # sure that it is one
-        if type(self.size) is not int:
+        if not isinstance(self.size, int):
             msger.error("Partition %s internal size is not an integer. " \
                           "This a bug in source plugin %s and needs to be fixed." \
                           % (self.mountpoint, self.source))
@@ -226,7 +223,7 @@ class Partition():
         pseudo += "export PSEUDO_LOCALSTATEDIR=%s;" % p_localstatedir
         pseudo += "export PSEUDO_PASSWD=%s;" % p_passwd
         pseudo += "export PSEUDO_NOSYMLINKEXP=%s;" % p_nosymlinkexp
-        pseudo += "%s/usr/bin/pseudo " % native_sysroot
+        pseudo += "%s " % get_bitbake_var("FAKEROOTCMD")
 
         rootfs = "%s/rootfs_%s.%s.%s" % (cr_workdir, self.label,
                                          self.lineno, self.fstype)
@@ -245,7 +242,10 @@ class Partition():
             # IMAGE_OVERHEAD_FACTOR and IMAGE_ROOTFS_EXTRA_SPACE
             rsize_bb = get_bitbake_var('ROOTFS_SIZE')
             if rsize_bb:
-                msger.warning('overhead-factor was specified, but size was not, so bitbake variables will be used for the size. In this case both IMAGE_OVERHEAD_FACTOR and --overhead-factor will be applied')
+                msger.warning('overhead-factor was specified, but size was not,'
+                              ' so bitbake variables will be used for the size.'
+                              ' In this case both IMAGE_OVERHEAD_FACTOR and '
+                              '--overhead-factor will be applied')
                 self.size = int(round(float(rsize_bb)))
 
         for prefix in ("ext", "btrfs", "vfat", "squashfs"):
@@ -405,7 +405,8 @@ class Partition():
                       "Proceeding as requested." % self.mountpoint)
 
         path = "%s/fs_%s.%s" % (cr_workdir, self.label, self.fstype)
-        os.path.isfile(path) and os.remove(path)
+        if os.path.isfile(path):
+            os.remove(path)
 
         # it is not possible to create a squashfs without source data,
         # thus prepare an empty temp dir that is used as source
@@ -439,4 +440,3 @@ class Partition():
             label_str = "-L %s" % self.label
         mkswap_cmd = "mkswap %s -U %s %s" % (label_str, str(uuid.uuid1()), path)
         exec_native_cmd(mkswap_cmd, native_sysroot)
-

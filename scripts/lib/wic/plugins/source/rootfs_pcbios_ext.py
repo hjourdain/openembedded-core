@@ -19,12 +19,48 @@
 #
 
 import os
+import re
+
 from wic import msger
-from wic.utils import syslinux
 from wic.utils import runner
-from wic.utils.oe import misc
+from wic.utils.misc import get_bitbake_var, exec_cmd, exec_native_cmd
 from wic.utils.errors import ImageError
 from wic.pluginbase import SourcePlugin
+
+def serial_console_form_kargs(kernel_args):
+    """
+    Create SERIAL... line from kernel parameters
+
+    syslinux needs a line SERIAL port [baudrate [flowcontrol]]
+    in the syslinux.cfg file. The config line is generated based
+    on kernel boot parameters. The the parameters of the first
+    ttyS console are considered for syslinux config.
+    @param kernel_args kernel command line
+    @return line for syslinux config file e.g. "SERIAL 0 115200"
+    """
+    syslinux_conf = ""
+    for param in kernel_args.split():
+        param_match = re.match("console=ttyS([0-9]+),?([0-9]*)([noe]?)([0-9]?)(r?)", param)
+        if param_match:
+            syslinux_conf += "SERIAL " + param_match.group(1)
+            # baudrate
+            if param_match.group(2):
+                syslinux_conf += " " + param_match.group(2)
+            # parity
+            if param_match.group(3) and param_match.group(3) != 'n':
+                msger.warning("syslinux does not support parity for console. {} is ignored."
+                              .format(param_match.group(3)))
+            # number of bits
+            if param_match.group(4) and param_match.group(4) != '8':
+                msger.warning("syslinux supports 8 bit console configuration only. {} is ignored."
+                              .format(param_match.group(4)))
+            # flow control
+            if param_match.group(5) and param_match.group(5) != '':
+                msger.warning("syslinux console flowcontrol configuration. {} is ignored."
+                              .format(param_match.group(5)))
+            break
+
+    return syslinux_conf
 
 
 # pylint: disable=no-init
@@ -58,7 +94,7 @@ class RootfsPlugin(SourcePlugin):
         if os.path.isdir(rootfs_dir):
             return rootfs_dir
 
-        image_rootfs_dir = misc.get_bitbake_var("IMAGE_ROOTFS", rootfs_dir)
+        image_rootfs_dir = get_bitbake_var("IMAGE_ROOTFS", rootfs_dir)
         if not os.path.isdir(image_rootfs_dir):
             msg = "No valid artifact IMAGE_ROOTFS from image named"
             msg += " %s has been found at %s, exiting.\n" % \
@@ -86,7 +122,7 @@ class RootfsPlugin(SourcePlugin):
         syslinux_conf += "ALLOWOPTIONS 1\n"
 
         # Derive SERIAL... line from from kernel boot parameters
-        syslinux_conf += syslinux.serial_console_form_kargs(options) + "\n"
+        syslinux_conf += serial_console_form_kargs(options) + "\n"
 
         syslinux_conf += "DEFAULT linux\n"
         syslinux_conf += "LABEL linux\n"
@@ -119,7 +155,7 @@ class RootfsPlugin(SourcePlugin):
         native_syslinux_nomtools = os.path.join(native_sysroot, "usr/bin/syslinux-nomtools")
         if not is_exe(native_syslinux_nomtools):
             msger.info("building syslinux-native...")
-            misc.exec_cmd("bitbake syslinux-native")
+            exec_cmd("bitbake syslinux-native")
         if not is_exe(native_syslinux_nomtools):
             msger.error("Couldn't find syslinux-nomtools (%s), exiting\n" %
                         native_syslinux_nomtools)
@@ -145,7 +181,7 @@ class RootfsPlugin(SourcePlugin):
 
         # install syslinux into rootfs partition
         syslinux_cmd = "syslinux-nomtools -d /boot -i %s" % part.source_file
-        misc.exec_native_cmd(syslinux_cmd, native_sysroot)
+        exec_native_cmd(syslinux_cmd, native_sysroot)
 
     @classmethod
     def do_install_disk(cls, disk, disk_name, image_creator, workdir, oe_builddir,

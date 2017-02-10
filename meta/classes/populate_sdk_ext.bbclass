@@ -11,8 +11,6 @@ TOOLCHAIN_HOST_TASK_task-populate-sdk-ext = " \
 
 TOOLCHAIN_TARGET_TASK_task-populate-sdk-ext = ""
 
-SDK_RDEPENDS_append_task-populate-sdk-ext = " ${SDK_TARGETS}"
-
 SDK_RELOCATE_AFTER_INSTALL_task-populate-sdk-ext = "0"
 
 SDK_EXT = ""
@@ -47,8 +45,10 @@ def get_sdk_install_targets(d, images_only=False):
         sdk_install_targets = d.getVar('SDK_TARGETS')
 
         depd = d.getVar('BB_TASKDEPDATA', False)
+        tasklist = bb.build.tasksbetween('do_image_complete', 'do_build', d)
+        tasklist.remove('do_build')
         for v in depd.values():
-            if v[1] == 'do_image_complete':
+            if v[1] in tasklist:
                 if v[0] not in sdk_install_targets:
                     sdk_install_targets += ' {}'.format(v[0])
 
@@ -282,6 +282,7 @@ python copy_buildsystem () {
             # Write a newline just in case there's none at the end of the original
             f.write('\n')
 
+            f.write('TMPDIR = "${TOPDIR}/tmp"\n')
             f.write('DL_DIR = "${TOPDIR}/downloads"\n')
 
             f.write('INHERIT += "%s"\n' % 'uninative')
@@ -305,7 +306,7 @@ python copy_buildsystem () {
             f.write('SIGGEN_LOCKEDSIGS_TASKSIG_CHECK = "warn"\n\n')
 
             # Set up whitelist for run on install
-            f.write('BB_SETSCENE_ENFORCE_WHITELIST = "%:* *:do_shared_workdir *:do_rm_work *:do_package"\n\n')
+            f.write('BB_SETSCENE_ENFORCE_WHITELIST = "%:* *:do_shared_workdir *:do_rm_work wic-tools:*"\n\n')
 
             # Hide the config information from bitbake output (since it's fixed within the SDK)
             f.write('BUILDCFG_HEADER = ""\n\n')
@@ -403,7 +404,7 @@ python copy_buildsystem () {
 
     if sdk_include_toolchain:
         lockedsigs_base = d.getVar('WORKDIR') + '/locked-sigs-base2.inc'
-        lockedsigs_toolchain = d.getVar('STAGING_DIR_HOST') + '/locked-sigs/locked-sigs-extsdk-toolchain.inc'
+        lockedsigs_toolchain = d.expand("${STAGING_DIR}/${TUNE_PKGARCH}/meta-extsdk-toolchain/locked-sigs/locked-sigs-extsdk-toolchain.inc")
         shutil.move(lockedsigs_pruned, lockedsigs_base)
         oe.copy_buildsystem.merge_lockedsigs([],
                                              lockedsigs_base,
@@ -511,9 +512,9 @@ install_tools() {
 	# We can't use the same method as above because files in the sysroot won't exist at this point
 	# (they get populated from sstate on installation)
 	unfsd_path="${SDK_OUTPUT}/${SDKPATHNATIVE}${bindir_nativesdk}/unfsd"
-	if [ "${SDK_INCLUDE_TOOLCHAIN}" == "1" -a ! -e $unfsd_path ] ; then
-		binrelpath=${@os.path.relpath(d.getVar('STAGING_BINDIR_NATIVE'), d.getVar('TOPDIR'))}
-		lnr ${SDK_OUTPUT}/${SDKPATH}/$binrelpath/unfsd $unfsd_path
+	if [ "${SDK_INCLUDE_TOOLCHAIN}" = "1" -a ! -e $unfsd_path ] ; then
+		binrelpath=${@os.path.relpath(d.getVar('STAGING_BINDIR_NATIVE'), d.getVar('TMPDIR'))}
+		lnr ${SDK_OUTPUT}/${SDKPATH}/tmp/$binrelpath/unfsd $unfsd_path
 	fi
 	touch ${SDK_OUTPUT}/${SDKPATH}/.devtoolbase
 
@@ -631,7 +632,9 @@ def get_ext_sdk_depends(d):
     deps = d.getVarFlag('do_image_complete', 'deps', False)
     pn = d.getVar('PN')
     deplist = ['%s:%s' % (pn, dep) for dep in deps]
-    for task in ['do_image_complete', 'do_rootfs', 'do_build']:
+    tasklist = bb.build.tasksbetween('do_image_complete', 'do_build', d)
+    tasklist.append('do_rootfs')
+    for task in tasklist:
         deplist.extend((d.getVarFlag(task, 'depends') or '').split())
     return ' '.join(deplist)
 

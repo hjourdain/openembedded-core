@@ -6,10 +6,8 @@ RDEPENDS_${PN}_class-target += "bash"
 RDEPENDS_${PN}-ptest = "bash make"
 
 require qemu-targets.inc
-inherit autotools ptest
+inherit autotools pkgconfig ptest
 BBCLASSEXTEND = "native nativesdk"
-
-PR = "r1"
 
 # QEMU_TARGETS is overridable variable
 QEMU_TARGETS ?= "arm aarch64 i386 mips mipsel mips64 mips64el ppc sh4 x86_64"
@@ -21,7 +19,6 @@ SRC_URI = "\
     file://wacom.patch \
     file://add-ptest-in-makefile.patch \
     file://run-ptest \
-    file://0001-target-mips-add-24KEc-CPU-definition.patch \
     "
 
 SRC_URI_append_class-native = "\
